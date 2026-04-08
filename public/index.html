@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Web Terminal</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@4.19.0/css/xterm.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar Overlay (mobile) -->
+    <div id="sidebar-overlay"></div>
+
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div id="sidebar-header">
+        <h1>Sessions</h1>
+      </div>
+      <div id="session-list"></div>
+      <button id="new-session-btn">+ New Session</button>
+      <button id="attach-btn">Attach tmux</button>
+    </div>
+
+    <!-- Main -->
+    <div id="main">
+      <div id="toolbar">
+        <button id="menu-toggle">&#9776;</button>
+        <span id="status-dot" style="display:none"></span>
+        <span id="toolbar-title">Web Terminal</span>
+        <div id="toolbar-actions">
+          <button class="btn-icon" id="name-expand-btn" title="展开/截断会话名称">&#8942;</button>
+          <button class="btn-icon" id="shortcut-toggle-btn" title="AI 快捷键">&#9000;</button>
+          <button class="btn-icon" id="select-mode-btn" title="Toggle select mode">Select</button>
+          <span id="font-size-label"></span>
+          <button class="btn-icon" id="font-dec" title="Decrease font">A-</button>
+          <button class="btn-icon" id="font-inc" title="Increase font">A+</button>
+        </div>
+      </div>
+
+      <!-- 快捷键栏（两行） -->
+      <div id="shortcut-bar" style="display:none">
+        <!-- 第一行：固定按钮（方向键/ESC + tmux命令） -->
+        <div id="shortcut-fixed-row"></div>
+        <!-- 第二行：AI 分析按钮 -->
+        <div id="shortcut-ai-row">
+          <div id="shortcut-ai-keys"></div>
+          <button id="shortcut-refresh-btn" title="AI 分析快捷键">&#8635;</button>
+        </div>
+      </div>
+
+      <div id="terminal-container" style="display:none"></div>
+      <div id="copy-toast">Copied!</div>
+
+      <div id="no-session">
+        <div style="font-size:48px;opacity:0.3">&#9002;</div>
+        <div>No active session</div>
+        <button id="no-session-btn">Create Session</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Session Wizard Modal -->
+  <div id="wizard-modal" class="modal-overlay" style="display:none">
+    <div class="modal wizard-modal">
+      <div class="modal-header">
+        <h2 id="wizard-title">New Session</h2>
+        <button class="btn-icon" id="wizard-close">&times;</button>
+      </div>
+      <div class="modal-body wizard-body" id="wizard-body">
+      </div>
+      <div class="wizard-footer" id="wizard-footer">
+        <button class="btn-secondary" id="wizard-skip">跳过</button>
+        <div style="flex:1"></div>
+        <button class="btn-secondary" id="wizard-back" style="display:none">← 上一步</button>
+        <button class="btn-primary" id="wizard-next">下一步 →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Attach Modal -->
+  <div id="attach-modal" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Attach tmux Session</h2>
+        <button class="btn-icon" id="attach-modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="attach-loading">Scanning...</div>
+        <div id="attach-content" style="display:none">
+          <div id="tmux-list"></div>
+          <div id="attach-empty" style="display:none">No tmux sessions found.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xterm@4.19.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.5.0/lib/xterm-addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.6.0/lib/xterm-addon-web-links.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

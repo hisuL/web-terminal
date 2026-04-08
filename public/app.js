@@ -1,0 +1,1713 @@
+(() => {
+  const CTRL_PREFIX = "\x00";
+
+  // State
+  let sessions = [];
+  let activeSessionId = null;
+  let terminal = null;
+  let fitAddon = null;
+  let termWs = null;
+  let lobbyWs = null;
+  let reconnectTimer = null;
+  let sidebarOpen = false;
+  let shortcutBarOpen = false;
+  let currentFontSize = window.innerWidth <= 768 ? 13 : 15;
+  const MIN_FONT_SIZE = 8;
+  const MAX_FONT_SIZE = 32;
+
+  // --- Color Themes ---
+  const COLOR_THEMES = [
+    {
+      id: "tokyo-night", name: "Tokyo Night",
+      bg: "#1a1b26",
+      theme: {
+        background: "#1a1b26", foreground: "#c0caf5", cursor: "#c0caf5",
+        selectionBackground: "#283457",
+        black: "#15161e", red: "#f7768e", green: "#9ece6a", yellow: "#e0af68",
+        blue: "#7aa2f7", magenta: "#bb9af7", cyan: "#7dcfff", white: "#a9b1d6",
+        brightBlack: "#414868", brightRed: "#ff899d", brightGreen: "#9fe044",
+        brightYellow: "#faba4a", brightBlue: "#8db0ff", brightMagenta: "#c7a9ff",
+        brightCyan: "#a4daff", brightWhite: "#c0caf5",
+      },
+    },
+    {
+      id: "dracula", name: "Dracula",
+      bg: "#282A36",
+      theme: {
+        background: "#282A36", foreground: "#F8F8F2", cursor: "#F8F8F2",
+        selectionBackground: "#44475A",
+        black: "#21222C", red: "#FF5555", green: "#50FA7B", yellow: "#F1FA8C",
+        blue: "#BD93F9", magenta: "#FF79C6", cyan: "#8BE9FD", white: "#F8F8F2",
+        brightBlack: "#6272A4", brightRed: "#FF6E6E", brightGreen: "#69FF94",
+        brightYellow: "#FFFFA5", brightBlue: "#D6ACFF", brightMagenta: "#FF92DF",
+        brightCyan: "#A4FFFF", brightWhite: "#FFFFFF",
+      },
+    },
+    {
+      id: "gruvbox", name: "Gruvbox",
+      bg: "#282828",
+      theme: {
+        background: "#282828", foreground: "#EBDBB2", cursor: "#EBDBB2",
+        selectionBackground: "#3C3836",
+        black: "#282828", red: "#CC241D", green: "#98971A", yellow: "#D79921",
+        blue: "#458588", magenta: "#B16286", cyan: "#689D6A", white: "#A89984",
+        brightBlack: "#928374", brightRed: "#FB4934", brightGreen: "#B8BB26",
+        brightYellow: "#FABD2F", brightBlue: "#83A598", brightMagenta: "#D3869B",
+        brightCyan: "#8EC07C", brightWhite: "#EBDBB2",
+      },
+    },
+    {
+      id: "nord", name: "Nord",
+      bg: "#2E3440",
+      theme: {
+        background: "#2E3440", foreground: "#D8DEE9", cursor: "#D8DEE9",
+        selectionBackground: "#434C5E",
+        black: "#3B4252", red: "#BF616A", green: "#A3BE8C", yellow: "#EBCB8B",
+        blue: "#81A1C1", magenta: "#B48EAD", cyan: "#88C0D0", white: "#E5E9F0",
+        brightBlack: "#4C566A", brightRed: "#BF616A", brightGreen: "#A3BE8C",
+        brightYellow: "#EBCB8B", brightBlue: "#81A1C1", brightMagenta: "#B48EAD",
+        brightCyan: "#8FBCBB", brightWhite: "#ECEFF4",
+      },
+    },
+    {
+      id: "one-dark", name: "One Dark",
+      bg: "#282C34",
+      theme: {
+        background: "#282C34", foreground: "#ABB2BF", cursor: "#528BFF",
+        selectionBackground: "#3E4451",
+        black: "#1E2127", red: "#E06C75", green: "#98C379", yellow: "#D19A66",
+        blue: "#61AFEF", magenta: "#C678DD", cyan: "#56B6C2", white: "#ABB2BF",
+        brightBlack: "#5C6370", brightRed: "#E06C75", brightGreen: "#98C379",
+        brightYellow: "#D19A66", brightBlue: "#61AFEF", brightMagenta: "#C678DD",
+        brightCyan: "#56B6C2", brightWhite: "#FFFFFF",
+      },
+    },
+    {
+      id: "catppuccin", name: "Catppuccin",
+      bg: "#1E1E2E",
+      theme: {
+        background: "#1E1E2E", foreground: "#CDD6F4", cursor: "#F5E0DC",
+        selectionBackground: "#45475A",
+        black: "#45475A", red: "#F38BA8", green: "#A6E3A1", yellow: "#F9E2AF",
+        blue: "#89B4FA", magenta: "#F5C2E7", cyan: "#94E2D5", white: "#BAC2DE",
+        brightBlack: "#585B70", brightRed: "#F38BA8", brightGreen: "#A6E3A1",
+        brightYellow: "#F9E2AF", brightBlue: "#89B4FA", brightMagenta: "#F5C2E7",
+        brightCyan: "#94E2D5", brightWhite: "#A6ADC8",
+      },
+    },
+    {
+      id: "solarized", name: "Solarized",
+      bg: "#002B36",
+      theme: {
+        background: "#002B36", foreground: "#839496", cursor: "#839496",
+        selectionBackground: "#073642",
+        black: "#073642", red: "#DC322F", green: "#859900", yellow: "#B58900",
+        blue: "#268BD2", magenta: "#D33682", cyan: "#2AA198", white: "#EEE8D5",
+        brightBlack: "#002B36", brightRed: "#CB4B16", brightGreen: "#586E75",
+        brightYellow: "#657B83", brightBlue: "#839496", brightMagenta: "#6C71C4",
+        brightCyan: "#93A1A1", brightWhite: "#FDF6E3",
+      },
+    },
+    {
+      id: "monokai", name: "Monokai",
+      bg: "#272822",
+      theme: {
+        background: "#272822", foreground: "#F8F8F2", cursor: "#F8F8F0",
+        selectionBackground: "#49483E",
+        black: "#272822", red: "#F92672", green: "#A6E22E", yellow: "#F4BF75",
+        blue: "#66D9EF", magenta: "#AE81FF", cyan: "#A1EFE4", white: "#F8F8F2",
+        brightBlack: "#75715E", brightRed: "#F92672", brightGreen: "#A6E22E",
+        brightYellow: "#F4BF75", brightBlue: "#66D9EF", brightMagenta: "#AE81FF",
+        brightCyan: "#A1EFE4", brightWhite: "#F9F8F5",
+      },
+    },
+  ];
+
+  let currentThemeId = localStorage.getItem("termTheme") || "tokyo-night";
+
+  function getCurrentTheme() {
+    return COLOR_THEMES.find((t) => t.id === currentThemeId) || COLOR_THEMES[0];
+  }
+
+  function applyTheme(themeId) {
+    currentThemeId = themeId;
+    localStorage.setItem("termTheme", themeId);
+    const t = getCurrentTheme();
+    // 更新终端颜色
+    if (terminal) terminal.options.theme = t.theme;
+    // 更新 select overlay 背景
+    const overlay = document.getElementById("select-overlay");
+    if (overlay) overlay.style.background = t.theme.background;
+    // 更新 CSS 变量（让 toolbar/sidebar 背景跟主题走）
+    document.documentElement.style.setProperty("--bg", t.theme.background);
+  }
+
+  // --- Visual Viewport: 键盘弹出时整体收缩，避免快捷键栏被遮住 ---
+  const appEl = document.getElementById("app");
+
+  function applyViewportHeight() {
+    if (!window.visualViewport) return;
+    const vv = window.visualViewport;
+    // 让 #app 跟随可视区域高度，键盘弹出时自动收缩
+    appEl.style.height = vv.height + "px";
+    // visualViewport 滚动偏移（iOS 键盘弹出时页面会上移）
+    appEl.style.transform = `translateY(${vv.offsetTop}px)`;
+    if (fitAddon && terminal) {
+      requestAnimationFrame(() => fitAddon.fit());
+    }
+  }
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", applyViewportHeight);
+    window.visualViewport.addEventListener("scroll", applyViewportHeight);
+    applyViewportHeight();
+  }
+
+  // DOM refs
+  const sidebar = document.getElementById("sidebar");
+  const sidebarOverlay = document.getElementById("sidebar-overlay");
+  const sessionList = document.getElementById("session-list");
+  const terminalContainer = document.getElementById("terminal-container");
+  const noSession = document.getElementById("no-session");
+  const toolbarTitle = document.getElementById("toolbar-title");
+  const statusDot = document.getElementById("status-dot");
+  const menuToggle = document.getElementById("menu-toggle");
+
+  function sendCtrl(ws, obj) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(CTRL_PREFIX + JSON.stringify(obj));
+    }
+  }
+
+  // --- Sidebar Toggle (mobile) ---
+  function toggleSidebar(open) {
+    sidebarOpen = open !== undefined ? open : !sidebarOpen;
+    sidebar.classList.toggle("open", sidebarOpen);
+    sidebarOverlay.classList.toggle("open", sidebarOpen);
+  }
+
+  menuToggle.addEventListener("click", () => toggleSidebar());
+  sidebarOverlay.addEventListener("click", () => toggleSidebar(false));
+
+  // --- Parse incoming message ---
+  function parseMessage(data) {
+    if (typeof data === "string" && data[0] === CTRL_PREFIX) {
+      try {
+        return { ctrl: true, msg: JSON.parse(data.slice(1)) };
+      } catch {
+        return { ctrl: false, data };
+      }
+    }
+    return { ctrl: false, data };
+  }
+
+  // --- Lobby WebSocket (session list updates) ---
+  // 初始加载完成标记，避免 lobby 推送覆盖初始 fetch 结果
+  let initialLoadDone = false;
+
+  function connectLobby() {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    lobbyWs = new WebSocket(`${proto}//${location.host}`);
+
+    lobbyWs.onmessage = (e) => {
+      const parsed = parseMessage(e.data);
+      if (!parsed.ctrl) return;
+      const msg = parsed.msg;
+      if (msg.type === "sessions") {
+        // 初始加载未完成时忽略 lobby 推送，避免竞争
+        if (!initialLoadDone) return;
+        sessions = msg.data;
+        renderSessionList();
+      } else if (msg.type === "created") {
+        switchSession(msg.data.id);
+      }
+    };
+
+    lobbyWs.onclose = () => {
+      setTimeout(connectLobby, 3000);
+    };
+  }
+
+  // --- Session List Rendering ---
+  function renderSessionList() {
+    sessionList.innerHTML = "";
+    sessions.forEach((s) => {
+      const div = document.createElement("div");
+      div.className = "session-item" + (s.id === activeSessionId ? " active" : "");
+      div.innerHTML = `
+        <div class="session-info">
+          <div class="session-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</div>
+          <div class="session-meta">${formatTime(s.createdAt)} · ${s.clients} conn</div>
+        </div>
+        <div class="session-actions">
+          <button class="btn-icon" data-action="rename" data-id="${s.id}" title="Rename">&#9998;</button>
+          <button class="btn-icon danger" data-action="close" data-id="${s.id}" title="Close">&times;</button>
+        </div>
+      `;
+      div.addEventListener("click", (e) => {
+        if (e.target.closest("[data-action]")) return;
+        switchSession(s.id);
+        toggleSidebar(false);
+      });
+      sessionList.appendChild(div);
+    });
+
+    sessionList.querySelectorAll("[data-action]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const action = btn.dataset.action;
+        const id = btn.dataset.id;
+        if (action === "close") closeSession(id);
+        else if (action === "rename") renameSession(id);
+      });
+    });
+  }
+
+  // --- Session Actions ---
+  async function createSession(name, cwd, initCmd, aiTool) {
+    const res = await fetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name || undefined, cwd: cwd || undefined, initCmd: initCmd || undefined, aiTool: aiTool || undefined }),
+    });
+    const data = await res.json();
+    switchSession(data.id);
+    toggleSidebar(false);
+  }
+
+  // --- New Session Wizard ---
+  const wizardModal = document.getElementById("wizard-modal");
+  const wizardTitle = document.getElementById("wizard-title");
+  const wizardBody = document.getElementById("wizard-body");
+  const wizardFooter = document.getElementById("wizard-footer");
+  const wizardSkip = document.getElementById("wizard-skip");
+  const wizardBack = document.getElementById("wizard-back");
+  const wizardNext = document.getElementById("wizard-next");
+  const wizardClose = document.getElementById("wizard-close");
+
+  const wizard = {
+    step: 0,           // 0=dir, 1=ai-tool
+    selectedDir: null, // string path or null
+    aiTool: null,      // 'claude' | 'codex' | null
+    aiOpts: {},        // { maxPermission, continueConv, ... }
+  };
+
+  function openWizard() {
+    wizard.step = 0;
+    wizard.selectedDir = null;
+    wizard.aiTool = null;
+    wizard.aiOpts = {};
+    toggleSidebar(false);
+    wizardModal.style.display = "flex";
+    renderWizardStep();
+  }
+
+  function closeWizard() {
+    wizardModal.style.display = "none";
+  }
+
+  wizardClose.addEventListener("click", closeWizard);
+  wizardModal.addEventListener("click", (e) => { if (e.target === wizardModal) closeWizard(); });
+
+  wizardSkip.addEventListener("click", () => {
+    if (wizard.step === 0) {
+      // 跳过目录选择，直接进入 AI 工具步骤
+      wizard.selectedDir = null;
+      wizard.step = 1;
+      renderWizardStep();
+    } else {
+      // 跳过 AI 工具，直接创建
+      finishWizard();
+    }
+  });
+
+  wizardBack.addEventListener("click", () => {
+    if (wizard.step > 0) { wizard.step--; renderWizardStep(); }
+  });
+
+  wizardNext.addEventListener("click", () => {
+    if (wizard.step === 0) {
+      wizard.step = 1;
+      renderWizardStep();
+    } else {
+      finishWizard();
+    }
+  });
+
+  function renderWizardStep() {
+    wizardBody.innerHTML = "";
+    wizardBack.style.display = wizard.step > 0 ? "inline-flex" : "none";
+
+    // Step indicator
+    const dots = document.createElement("div");
+    dots.className = "wizard-step-indicator";
+    for (let i = 0; i < 2; i++) {
+      const d = document.createElement("div");
+      d.className = "wizard-step-dot" + (i < wizard.step ? " done" : i === wizard.step ? " active" : "");
+      dots.appendChild(d);
+    }
+    wizardBody.appendChild(dots);
+
+    if (wizard.step === 0) {
+      wizardTitle.textContent = "选择工作目录";
+      wizardSkip.textContent = "跳过";
+      wizardNext.textContent = "下一步 →";
+      renderDirStep();
+    } else {
+      wizardTitle.textContent = "启动 AI 工具（可选）";
+      wizardSkip.textContent = "跳过，直接创建";
+      wizardNext.textContent = "创建会话 ✓";
+      renderAiStep();
+    }
+  }
+
+  // ---- Step 1: Directory Browser ----
+  let dirBrowserPath = null; // current browse path
+
+  async function renderDirStep() {
+    const wrap = document.createElement("div");
+    wrap.className = "dir-browser";
+    wizardBody.appendChild(wrap);
+
+    // 初始路径
+    if (!dirBrowserPath) {
+      try {
+        const r = await fetch("/api/dirs");
+        const d = await r.json();
+        dirBrowserPath = d.current;
+      } catch { dirBrowserPath = "/"; }
+    }
+    loadDirBrowser(wrap, dirBrowserPath);
+  }
+
+  async function loadDirBrowser(wrap, dirPath) {
+    wrap.innerHTML = '<div class="shortcut-loading" style="padding:8px">加载中…</div>';
+    dirBrowserPath = dirPath;
+
+    let data;
+    try {
+      const r = await fetch("/api/dirs?path=" + encodeURIComponent(dirPath));
+      data = await r.json();
+    } catch {
+      wrap.innerHTML = '<span class="shortcut-error">加载失败</span>';
+      return;
+    }
+
+    wrap.innerHTML = "";
+
+    // 路径栏
+    const pathBar = document.createElement("div");
+    pathBar.className = "dir-path-bar";
+    if (data.parent !== null) {
+      const upBtn = document.createElement("button");
+      upBtn.title = "上级目录";
+      upBtn.textContent = "↑";
+      upBtn.addEventListener("click", () => loadDirBrowser(wrap, data.parent));
+      pathBar.appendChild(upBtn);
+    }
+    const pathText = document.createElement("span");
+    pathText.textContent = data.current;
+    pathText.style.flex = "1";
+    pathText.style.minWidth = "0";
+    pathText.style.overflow = "hidden";
+    pathText.style.textOverflow = "ellipsis";
+    pathText.style.whiteSpace = "nowrap";
+    pathBar.appendChild(pathText);
+    wrap.appendChild(pathBar);
+
+    // 目录列表
+    const list = document.createElement("div");
+    list.className = "dir-list";
+
+    if (data.dirs.length === 0) {
+      list.innerHTML = '<div style="padding:12px;text-align:center;color:var(--text-dim);font-size:12px">（空目录）</div>';
+    }
+
+    data.dirs.forEach((d) => {
+      const item = document.createElement("div");
+      item.className = "dir-item" + (d.hidden ? " hidden-dir" : "") + (wizard.selectedDir === d.path ? " selected" : "");
+      item.innerHTML = `<span class="dir-icon">📁</span><span class="dir-name">${escapeHtml(d.name)}</span><span style="color:var(--text-dim);font-size:12px">›</span>`;
+
+      // 单击选中，双击进入
+      let clickTimer = null;
+      item.addEventListener("click", () => {
+        if (clickTimer) {
+          clearTimeout(clickTimer);
+          clickTimer = null;
+          loadDirBrowser(wrap, d.path);
+          return;
+        }
+        clickTimer = setTimeout(() => {
+          clickTimer = null;
+          // 选中/取消
+          wizard.selectedDir = wizard.selectedDir === d.path ? null : d.path;
+          wrap.querySelectorAll(".dir-item").forEach((el) => el.classList.remove("selected"));
+          if (wizard.selectedDir) item.classList.add("selected");
+        }, 220);
+      });
+      list.appendChild(item);
+    });
+
+    wrap.appendChild(list);
+
+    // 说明：单击选中，双击进入
+    const hint = document.createElement("div");
+    hint.style.cssText = "font-size:11px;color:var(--text-dim);padding:0 2px";
+    hint.textContent = "单击选中目录 · 双击进入 · 未选则使用当前目录";
+    wrap.appendChild(hint);
+
+    // 当前目录快速选中按钮
+    const selectCurrentBtn = document.createElement("button");
+    selectCurrentBtn.className = "btn-secondary";
+    selectCurrentBtn.style.cssText = "font-size:12px;padding:6px 12px;align-self:flex-start";
+    selectCurrentBtn.textContent = "✓ 使用当前目录";
+    selectCurrentBtn.addEventListener("click", () => {
+      wizard.selectedDir = data.current;
+      wrap.querySelectorAll(".dir-item").forEach((el) => el.classList.remove("selected"));
+      selectCurrentBtn.textContent = "✓ 已选：" + data.current.split("/").pop();
+      selectCurrentBtn.style.borderColor = "var(--accent)";
+      selectCurrentBtn.style.color = "var(--accent)";
+    });
+    wrap.appendChild(selectCurrentBtn);
+    if (wizard.selectedDir === data.current) {
+      selectCurrentBtn.textContent = "✓ 已选：" + data.current.split("/").pop();
+      selectCurrentBtn.style.borderColor = "var(--accent)";
+      selectCurrentBtn.style.color = "var(--accent)";
+    }
+
+    // 新建目录
+    const newRow = document.createElement("div");
+    newRow.className = "dir-new-row";
+    const newInput = document.createElement("input");
+    newInput.placeholder = "新建目录名…";
+    newInput.type = "text";
+    const newBtn = document.createElement("button");
+    newBtn.textContent = "创建";
+    newBtn.addEventListener("click", async () => {
+      const name = newInput.value.trim();
+      if (!name) return;
+      const newPath = data.current.replace(/\/$/, "") + "/" + name;
+      try {
+        const r = await fetch("/api/dirs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: newPath }),
+        });
+        const res = await r.json();
+        if (res.path) {
+          wizard.selectedDir = res.path;
+          loadDirBrowser(wrap, data.current);
+        }
+      } catch {}
+    });
+    newInput.addEventListener("keydown", (e) => { if (e.key === "Enter") newBtn.click(); });
+    newRow.appendChild(newInput);
+    newRow.appendChild(newBtn);
+    wrap.appendChild(newRow);
+  }
+
+  // ---- Step 2: AI Tool ----
+  function renderAiStep() {
+    const wrap = document.createElement("div");
+    wizardBody.appendChild(wrap);
+
+    const title = document.createElement("div");
+    title.className = "wizard-section-title";
+    title.textContent = "选择要启动的 AI 工具";
+    wrap.appendChild(title);
+
+    const grid = document.createElement("div");
+    grid.className = "ai-tool-grid";
+
+    // Claude card
+    const claudeCard = document.createElement("div");
+    claudeCard.className = "ai-tool-card" + (wizard.aiTool === "claude" ? " selected" : "");
+    claudeCard.innerHTML = `<h4>🤖 Claude</h4><p>Anthropic Claude Code CLI，适合代码生成与分析</p>`;
+    claudeCard.addEventListener("click", () => {
+      wizard.aiTool = wizard.aiTool === "claude" ? null : "claude";
+      renderAiStep._refresh(wrap);
+    });
+
+    // Codex card
+    const codexCard = document.createElement("div");
+    codexCard.className = "ai-tool-card" + (wizard.aiTool === "codex" ? " selected-codex" : "");
+    codexCard.innerHTML = `<h4>⚡ Codex</h4><p>OpenAI Codex CLI，适合快速命令行任务执行</p>`;
+    codexCard.addEventListener("click", () => {
+      wizard.aiTool = wizard.aiTool === "codex" ? null : "codex";
+      renderAiStep._refresh(wrap);
+    });
+
+    grid.appendChild(claudeCard);
+    grid.appendChild(codexCard);
+    wrap.appendChild(grid);
+
+    // None option
+    const noneBtn = document.createElement("div");
+    noneBtn.className = "ai-tool-none" + (wizard.aiTool === null ? " selected" : "");
+    noneBtn.textContent = "不启动 AI 工具，仅创建终端";
+    noneBtn.addEventListener("click", () => { wizard.aiTool = null; renderAiStep._refresh(wrap); });
+    wrap.appendChild(noneBtn);
+
+    // Options based on selected tool
+    const optsSection = document.createElement("div");
+    optsSection.className = "ai-opts-section" + (wizard.aiTool ? " visible" : "");
+    wrap.appendChild(optsSection);
+
+    if (wizard.aiTool === "claude") {
+      renderClaudeOpts(optsSection);
+    } else if (wizard.aiTool === "codex") {
+      renderCodexOpts(optsSection);
+    }
+
+    renderAiStep._refresh = (container) => {
+      container.innerHTML = "";
+      renderAiStep();
+    };
+  }
+
+  function renderClaudeOpts(container) {
+    const label = document.createElement("div");
+    label.className = "ai-opts-label";
+    label.textContent = "Claude 启动参数";
+    container.appendChild(label);
+
+    const opts = [
+      {
+        key: "dangerouslySkipPermissions",
+        label: "最大权限模式",
+        desc: "--dangerously-skip-permissions  跳过所有权限确认",
+      },
+      {
+        key: "continue",
+        label: "继续上次对话",
+        desc: "--continue  恢复最近的会话",
+      },
+      {
+        key: "verbose",
+        label: "详细输出",
+        desc: "--verbose  显示完整执行细节",
+      },
+    ];
+
+    if (!wizard.aiOpts.claude) wizard.aiOpts.claude = {};
+
+    opts.forEach(({ key, label: lbl, desc }) => {
+      const row = document.createElement("div");
+      row.className = "ai-opt-row";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.id = "claude-opt-" + key;
+      cb.checked = !!wizard.aiOpts.claude[key];
+      cb.addEventListener("change", () => { wizard.aiOpts.claude[key] = cb.checked; });
+      const labelEl = document.createElement("label");
+      labelEl.htmlFor = cb.id;
+      labelEl.innerHTML = `${escapeHtml(lbl)}<span>${escapeHtml(desc)}</span>`;
+      row.appendChild(cb);
+      row.appendChild(labelEl);
+      row.addEventListener("click", (e) => { if (e.target !== cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event("change")); } });
+      container.appendChild(row);
+    });
+  }
+
+  function renderCodexOpts(container) {
+    const label = document.createElement("div");
+    label.className = "ai-opts-label";
+    label.textContent = "Codex 启动参数";
+    container.appendChild(label);
+
+    const opts = [
+      {
+        key: "fullAuto",
+        label: "全自动模式",
+        desc: "--full-auto  自动执行，启用工作区写入沙箱",
+      },
+      {
+        key: "dangerouslyBypassApprovals",
+        label: "最大权限模式",
+        desc: "--dangerously-bypass-approvals-and-sandbox  跳过所有确认且无沙箱（谨慎使用）",
+      },
+      {
+        key: "quiet",
+        label: "静默模式",
+        desc: "--quiet  减少输出噪音",
+      },
+    ];
+
+    if (!wizard.aiOpts.codex) wizard.aiOpts.codex = {};
+
+    opts.forEach(({ key, label: lbl, desc }) => {
+      const row = document.createElement("div");
+      row.className = "ai-opt-row";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.id = "codex-opt-" + key;
+      cb.checked = !!wizard.aiOpts.codex[key];
+      cb.addEventListener("change", () => { wizard.aiOpts.codex[key] = cb.checked; });
+      const labelEl = document.createElement("label");
+      labelEl.htmlFor = cb.id;
+      labelEl.innerHTML = `${escapeHtml(lbl)}<span>${escapeHtml(desc)}</span>`;
+      row.appendChild(cb);
+      row.appendChild(labelEl);
+      row.addEventListener("click", (e) => { if (e.target !== cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event("change")); } });
+      container.appendChild(row);
+    });
+  }
+
+  function buildInitCmd() {
+    if (!wizard.aiTool) return null;
+    if (wizard.aiTool === "claude") {
+      const opts = wizard.aiOpts.claude || {};
+      const args = ["claude"];
+      if (opts.dangerouslySkipPermissions) args.push("--dangerously-skip-permissions");
+      if (opts.continue) args.push("--continue");
+      if (opts.verbose) args.push("--verbose");
+      return args.join(" ");
+    }
+    if (wizard.aiTool === "codex") {
+      const opts = wizard.aiOpts.codex || {};
+      const args = ["codex"];
+      if (opts.fullAuto) args.push("--full-auto");
+      if (opts.dangerouslyBypassApprovals) args.push("--dangerously-bypass-approvals-and-sandbox");
+      if (opts.quiet) args.push("--quiet");
+      return args.join(" ");
+    }
+    return null;
+  }
+
+  function buildSessionName() {
+    const dirPart = wizard.selectedDir ? wizard.selectedDir.split("/").pop() : null;
+    const toolPart = wizard.aiTool;
+    if (dirPart && toolPart) return `${toolPart}@${dirPart}`;
+    if (dirPart) return dirPart;
+    if (toolPart) return toolPart;
+    return undefined;
+  }
+
+  async function finishWizard() {
+    closeWizard();
+    const initCmd = buildInitCmd();
+    const name = buildSessionName();
+    await createSession(name, wizard.selectedDir || undefined, initCmd, wizard.aiTool || undefined);
+  }
+
+  async function closeSession(id) {
+    if (!confirm("Close this session?")) return;
+    await fetch(`/api/sessions/${id}`, { method: "DELETE" });
+    if (id === activeSessionId) {
+      disconnectTerminal();
+      activeSessionId = null;
+      updateMainView();
+    }
+  }
+
+  function renameSession(id) {
+    const session = sessions.find((s) => s.id === id);
+    if (!session) return;
+
+    const nameEl = [...sessionList.querySelectorAll(".session-item")].find(
+      (el) => el.querySelector(`[data-id="${id}"]`)
+    );
+    if (!nameEl) return;
+
+    const nameDiv = nameEl.querySelector(".session-name");
+    const oldName = session.name;
+    nameDiv.innerHTML = `<input class="rename-input" value="${escapeHtml(oldName)}" />`;
+    const input = nameDiv.querySelector("input");
+    input.focus();
+    input.select();
+
+    const finish = async () => {
+      const newName = input.value.trim() || oldName;
+      if (newName !== oldName) {
+        await fetch(`/api/sessions/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: newName }),
+        });
+      }
+      nameDiv.textContent = newName;
+    };
+
+    input.addEventListener("blur", finish);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") input.blur();
+      if (e.key === "Escape") {
+        input.value = oldName;
+        input.blur();
+      }
+    });
+  }
+
+  // --- Terminal Connection ---
+  function switchSession(id) {
+    if (id === activeSessionId) return;
+    disconnectTerminal();
+    activeSessionId = id;
+    renderSessionList();
+    updateMainView();
+    connectTerminal(id);
+    // 快捷键栏已打开时，切换 session 后立刻重建固定行（tmux/非tmux 按钮不同）
+    if (shortcutBarOpen) {
+      buildFixedRow();
+      // AI 行保留上次结果，不自动刷新
+    }
+  }
+
+  function updateMainView() {
+    const session = sessions.find((s) => s.id === activeSessionId);
+    if (session) {
+      terminalContainer.style.display = "block";
+      noSession.style.display = "none";
+      toolbarTitle.textContent = session.name;
+      toolbarTitle.title = session.name;
+    } else if (activeSessionId) {
+      // activeSessionId 已设置但 sessions 还没同步到，保持当前视图不变
+      // 避免 terminalContainer 和 noSession 同时显示
+    } else {
+      terminalContainer.style.display = "none";
+      noSession.style.display = "flex";
+      toolbarTitle.textContent = "Web Terminal";
+      toolbarTitle.title = "";
+      statusDot.className = "";
+      statusDot.style.display = "none";
+    }
+  }
+
+  function connectTerminal(sessionId) {
+    if (terminal) {
+      terminal.dispose();
+    }
+
+    terminal = new Terminal({
+      cursorBlink: true,
+      fontSize: currentFontSize,
+      fontFamily: "'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Menlo', monospace",
+      theme: getCurrentTheme().theme,
+      allowProposedApi: true,
+      scrollback: 5000,
+    });
+
+    fitAddon = new FitAddon.FitAddon();
+    terminal.loadAddon(fitAddon);
+    terminal.loadAddon(new WebLinksAddon.WebLinksAddon());
+
+    // Ensure container is visible and has dimensions before opening terminal
+    terminalContainer.style.display = "block";
+
+    terminal.open(terminalContainer);
+
+    // Delay fit — on mobile Chrome the container may not have final dimensions yet.
+    // Use double-rAF to ensure layout is fully resolved after display:block.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (fitAddon && terminal) {
+          fitAddon.fit();
+        }
+      });
+    });
+
+    // WebSocket
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    termWs = new WebSocket(`${proto}//${location.host}?session=${sessionId}`);
+
+    statusDot.style.display = "block";
+    statusDot.className = "connecting";
+
+    termWs.onopen = () => {
+      statusDot.className = "";
+      sendCtrl(termWs, { type: "resize", cols: terminal.cols, rows: terminal.rows });
+    };
+
+    termWs.onmessage = (e) => {
+      const parsed = parseMessage(e.data);
+      if (parsed.ctrl) {
+        const msg = parsed.msg;
+        if (msg.type === "exit") {
+          terminal.writeln("\r\n\x1b[31m[Session ended]\x1b[0m");
+          statusDot.className = "disconnected";
+        } else if (msg.type === "sessions") {
+          sessions = msg.data;
+          renderSessionList();
+        }
+      } else {
+        // Raw terminal data — write directly
+        terminal.write(parsed.data);
+      }
+    };
+
+    termWs.onclose = () => {
+      statusDot.className = "disconnected";
+      if (activeSessionId === sessionId) {
+        reconnectTimer = setTimeout(() => {
+          if (activeSessionId === sessionId) {
+            connectTerminal(sessionId);
+          }
+        }, 2000);
+      }
+    };
+
+    termWs.onerror = () => {
+      statusDot.className = "disconnected";
+    };
+
+    // Terminal input -> WebSocket as raw string (no JSON wrapping)
+    terminal.onData((data) => {
+      if (termWs && termWs.readyState === WebSocket.OPEN) {
+        termWs.send(data);
+      }
+    });
+
+    // Handle resize
+    const resizeObserver = new ResizeObserver(() => {
+      if (fitAddon) {
+        fitAddon.fit();
+        sendCtrl(termWs, { type: "resize", cols: terminal.cols, rows: terminal.rows });
+      }
+    });
+    resizeObserver.observe(terminalContainer);
+
+    terminal.focus();
+
+    // Touch: inertia scroll + pinch-to-zoom on mobile
+    setupTouchHandlers(terminalContainer);
+
+    // Copy on xterm internal selection (desktop mouse drag)
+    terminal.onSelectionChange(() => {
+      if (selectMode) return; // In select mode, use native selection instead
+      const sel = terminal.getSelection();
+      if (sel && navigator.clipboard) {
+        navigator.clipboard.writeText(sel).then(showCopyToast).catch(() => {});
+      }
+    });
+  }
+
+  function disconnectTerminal() {
+    clearTimeout(reconnectTimer);
+    if (termWs) {
+      termWs.onclose = null;
+      termWs.close();
+      termWs = null;
+    }
+    if (terminal) {
+      terminal.dispose();
+      terminal = null;
+      fitAddon = null;
+    }
+    terminalContainer.innerHTML = "";
+  }
+
+  // --- Touch: inertia scroll + pinch-to-zoom ---
+  function setupTouchHandlers(container) {
+    // pinch state
+    let pinching = false;
+    let startDist = 0;
+    let startFontSize = 0;
+
+    // scroll state
+    let scrolling = false;
+    let lastY = 0;
+    let lastTime = 0;
+    let velocityY = 0;        // px/ms
+    let rafId = null;
+    let accum = 0;            // 累积未消费的像素
+
+    const LINE_HEIGHT = () => (terminal ? terminal.options.fontSize * 1.2 : 18);
+
+    function getTouchDist(touches) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function stopInertia() {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      velocityY = 0;
+      accum = 0;
+    }
+
+    function runInertia() {
+      if (Math.abs(velocityY) < 0.02) { stopInertia(); return; }
+      // 每帧按 16ms 推进
+      accum += velocityY * 16;
+      const lineH = LINE_HEIGHT();
+      const lines = Math.trunc(accum / lineH);
+      if (lines !== 0) {
+        accum -= lines * lineH;
+        if (terminal) terminal.scrollLines(-lines); // 负号：向上滑 → 内容向上 → scrollLines 正数
+      }
+      velocityY *= 0.92;  // 摩擦系数，越小停得越快
+      rafId = requestAnimationFrame(runInertia);
+    }
+
+    container.addEventListener("touchstart", (e) => {
+      if (e.touches.length === 2) {
+        // 双指：捏缩模式，停止惯性
+        stopInertia();
+        scrolling = false;
+        pinching = true;
+        startDist = getTouchDist(e.touches);
+        startFontSize = currentFontSize;
+        e.preventDefault();
+        return;
+      }
+      if (e.touches.length === 1 && !pinching) {
+        stopInertia();
+        scrolling = true;
+        lastY = e.touches[0].clientY;
+        lastTime = e.timeStamp;
+        velocityY = 0;
+        accum = 0;
+        // 不 preventDefault：让 xterm 仍能接收 tap/click 以定位光标
+      }
+    }, { passive: false });
+
+    container.addEventListener("touchmove", (e) => {
+      if (pinching && e.touches.length === 2) {
+        e.preventDefault();
+        const dist = getTouchDist(e.touches);
+        const scale = dist / startDist;
+        let newSize = Math.round(startFontSize * scale);
+        newSize = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, newSize));
+        if (newSize !== currentFontSize) {
+          currentFontSize = newSize;
+          updateFontSizeLabel();
+          if (terminal) {
+            terminal.options.fontSize = newSize;
+            if (fitAddon) {
+              fitAddon.fit();
+              sendCtrl(termWs, { type: "resize", cols: terminal.cols, rows: terminal.rows });
+            }
+          }
+        }
+        return;
+      }
+
+      if (!scrolling || e.touches.length !== 1 || !terminal) return;
+      e.preventDefault(); // 阻止页面滚动，我们自己处理
+
+      const y = e.touches[0].clientY;
+      const dt = e.timeStamp - lastTime || 1;
+      const dy = y - lastY;   // 手指向下 dy>0 → 内容向下 → xterm scrollLines(-n)
+
+      // 指数平滑速度（px/ms）
+      const instantV = dy / dt;
+      velocityY = velocityY * 0.6 + instantV * 0.4;
+
+      // 直接滚动
+      accum += dy;
+      const lineH = LINE_HEIGHT();
+      const lines = Math.trunc(accum / lineH);
+      if (lines !== 0) {
+        accum -= lines * lineH;
+        terminal.scrollLines(-lines);
+      }
+
+      lastY = y;
+      lastTime = e.timeStamp;
+    }, { passive: false });
+
+    container.addEventListener("touchend", (e) => {
+      if (e.touches.length < 2) pinching = false;
+
+      if (scrolling && e.touches.length === 0) {
+        scrolling = false;
+        // 抬手时如果有速度则启动惯性
+        if (Math.abs(velocityY) > 0.05) {
+          rafId = requestAnimationFrame(runInertia);
+        }
+      }
+    });
+
+    container.addEventListener("touchcancel", () => {
+      pinching = false;
+      scrolling = false;
+      stopInertia();
+    });
+  }
+
+  // --- Helpers ---
+  function escapeHtml(s) {
+    const div = document.createElement("div");
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  function formatTime(ts) {
+    const d = new Date(ts);
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function isMobile() {
+    return window.innerWidth <= 768;
+  }
+
+  // --- Select mode ---
+  // On mobile, xterm intercepts all touch events so native text selection is impossible.
+  // Solution: overlay a plain <pre> with terminal text content on top of the terminal.
+  // Users can then long-press / drag to select and copy using the browser's native behavior.
+  let selectMode = false;
+  const selectModeBtn = document.getElementById("select-mode-btn");
+  const copyToast = document.getElementById("copy-toast");
+  let selectOverlay = null;
+
+  function getTerminalText() {
+    if (!terminal) return "";
+    const lines = [];
+    const buf = terminal.buffer.active;
+    for (let i = 0; i < buf.length; i++) {
+      const line = buf.getLine(i);
+      if (line) lines.push(line.translateToString(true));
+    }
+    // Trim trailing empty lines
+    while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+      lines.pop();
+    }
+    return lines.join("\n");
+  }
+
+  function toggleSelectMode() {
+    selectMode = !selectMode;
+    selectModeBtn.classList.toggle("active", selectMode);
+
+    if (selectMode) {
+      // 隐藏 xterm canvas 层，避免两层叠加和 touch 事件冲突
+      const xtermEl = terminalContainer.querySelector(".xterm");
+      if (xtermEl) xtermEl.style.visibility = "hidden";
+
+      // 创建纯文本 overlay，包含完整 scrollback 内容
+      selectOverlay = document.createElement("pre");
+      selectOverlay.id = "select-overlay";
+      selectOverlay.textContent = getTerminalText();
+      terminalContainer.appendChild(selectOverlay);
+
+      // 滚动到底部（最新内容）
+      requestAnimationFrame(() => {
+        selectOverlay.scrollTop = selectOverlay.scrollHeight;
+      });
+    } else {
+      // 恢复 xterm 显示
+      const xtermEl = terminalContainer.querySelector(".xterm");
+      if (xtermEl) xtermEl.style.visibility = "";
+
+      if (selectOverlay) {
+        selectOverlay.remove();
+        selectOverlay = null;
+      }
+      window.getSelection()?.removeAllRanges();
+      if (terminal) terminal.focus();
+    }
+  }
+
+  function showCopyToast() {
+    copyToast.classList.add("show");
+    setTimeout(() => copyToast.classList.remove("show"), 1200);
+  }
+
+  selectModeBtn.addEventListener("click", toggleSelectMode);
+
+  // Auto-copy when user finishes selecting text in overlay
+  document.addEventListener("selectionchange", () => {
+    if (!selectMode) return;
+    // Debounce: copy after selection stabilizes
+    clearTimeout(selectModeBtn._copyTimer);
+    selectModeBtn._copyTimer = setTimeout(() => {
+      const sel = window.getSelection()?.toString();
+      if (sel && navigator.clipboard) {
+        navigator.clipboard.writeText(sel).then(showCopyToast).catch(() => {});
+      }
+    }, 500);
+  });
+
+  // --- Font size controls ---
+  const fontSizeLabel = document.getElementById("font-size-label");
+
+  function updateFontSizeLabel() {
+    fontSizeLabel.textContent = currentFontSize + "px";
+  }
+
+  function changeFontSize(delta) {
+    const newSize = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, currentFontSize + delta));
+    if (newSize === currentFontSize) return;
+    currentFontSize = newSize;
+    updateFontSizeLabel();
+    if (terminal) {
+      terminal.options.fontSize = newSize;
+      if (fitAddon) {
+        fitAddon.fit();
+        sendCtrl(termWs, { type: "resize", cols: terminal.cols, rows: terminal.rows });
+      }
+    }
+  }
+
+  updateFontSizeLabel();
+
+  // --- Attach Modal ---
+  const attachModal = document.getElementById("attach-modal");
+  const attachLoading = document.getElementById("attach-loading");
+  const attachContent = document.getElementById("attach-content");
+  const tmuxList = document.getElementById("tmux-list");
+  const attachEmpty = document.getElementById("attach-empty");
+
+  function openAttachModal() {
+    attachModal.style.display = "flex";
+    attachLoading.style.display = "block";
+    attachContent.style.display = "none";
+    toggleSidebar(false);
+    scanExternal();
+  }
+
+  function closeAttachModal() {
+    attachModal.style.display = "none";
+  }
+
+  async function scanExternal() {
+    try {
+      const res = await fetch("/api/external");
+      const data = await res.json();
+      renderAttachList(data);
+    } catch {
+      attachLoading.textContent = "Scan failed.";
+    }
+  }
+
+  function renderAttachList(data) {
+    attachLoading.style.display = "none";
+    attachContent.style.display = "block";
+    tmuxList.innerHTML = "";
+
+    const hasTmux = data.tmux && data.tmux.length > 0;
+    attachEmpty.style.display = hasTmux ? "none" : "block";
+
+    if (hasTmux) {
+      data.tmux.forEach((ts) => {
+        const div = document.createElement("div");
+        div.className = "tmux-session";
+
+        const badge = ts.attached
+          ? '<span class="badge attached">attached</span>'
+          : '<span class="badge">detached</span>';
+
+        let html = `<div class="tmux-session-header">${escapeHtml(ts.name)} ${badge} <span class="badge">${ts.windows} win</span></div>`;
+
+        ts.windowList.forEach((w) => {
+          html += `
+            <div class="tmux-window" data-session="${escapeHtml(ts.name)}" data-window="${w.index}">
+              <div class="tmux-window-info">
+                <span class="tmux-window-idx">#${w.index}</span>
+                <span class="tmux-window-name">${escapeHtml(w.name)}</span>
+                <span class="tmux-window-cmd">${escapeHtml(w.command)}</span>
+              </div>
+              <span class="attach-action">Attach</span>
+            </div>
+          `;
+        });
+
+        div.innerHTML = html;
+        tmuxList.appendChild(div);
+      });
+
+      tmuxList.querySelectorAll(".tmux-window").forEach((el) => {
+        el.addEventListener("click", () => {
+          attachTmux(el.dataset.session, Number(el.dataset.window));
+        });
+      });
+    }
+  }
+
+  async function attachTmux(sessionName, windowIdx) {
+    closeAttachModal();
+    try {
+      const res = await fetch("/api/attach/tmux", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: sessionName, window: windowIdx }),
+      });
+      const data = await res.json();
+      if (data.id) {
+        switchSession(data.id);
+      }
+    } catch {}
+  }
+
+  document.getElementById("attach-btn").addEventListener("click", openAttachModal);
+  document.getElementById("attach-modal-close").addEventListener("click", closeAttachModal);
+  attachModal.addEventListener("click", (e) => {
+    if (e.target === attachModal) closeAttachModal();
+  });
+
+  // --- Button bindings ---
+  document.getElementById("new-session-btn").addEventListener("click", openWizard);
+  document.getElementById("no-session-btn").addEventListener("click", openWizard);
+  document.getElementById("font-inc").addEventListener("click", () => changeFontSize(2));
+  document.getElementById("font-dec").addEventListener("click", () => changeFontSize(-2));
+
+  // --- 会话名展开/截断切换 ---
+  const nameExpandBtn = document.getElementById("name-expand-btn");
+  let namesExpanded = false;
+  nameExpandBtn.addEventListener("click", () => {
+    namesExpanded = !namesExpanded;
+    appEl.classList.toggle("names-expanded", namesExpanded);
+    nameExpandBtn.classList.toggle("active", namesExpanded);
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && e.shiftKey && e.key === "T") {
+      e.preventDefault();
+      openWizard();
+    }
+  });
+
+  // --- AI Shortcut Bar ---
+  const shortcutToggleBtn = document.getElementById("shortcut-toggle-btn");
+  const shortcutBar = document.getElementById("shortcut-bar");
+  const shortcutKeys = document.getElementById("shortcut-keys");
+  const shortcutRefreshBtn = document.getElementById("shortcut-refresh-btn");
+  let aiEnabled = false; // 由 /api/config 决定，默认关闭
+
+  // 获取终端当前可见的最后 N 行文本（去掉 ANSI 转义序列）
+  function getTerminalVisibleLines(maxLines = 30) {
+    if (!terminal) return "";
+    const buf = terminal.buffer.active;
+    const totalLines = buf.length;
+    const start = Math.max(0, totalLines - maxLines);
+    const lines = [];
+    for (let i = start; i < totalLines; i++) {
+      const line = buf.getLine(i);
+      if (line) lines.push(line.translateToString(true));
+    }
+    // 去掉末尾空行
+    while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
+    return lines.join("\n");
+  }
+
+  // 将快捷键 label 映射到实际发送的字节序列
+  // AI 返回 sequence 字段，这里作为兜底
+  const SEQUENCE_MAP = {
+    "ctrl+c": "\x03",
+    "ctrl+d": "\x04",
+    "ctrl+z": "\x1a",
+    "ctrl+l": "\x0c",
+    "ctrl+r": "\x12",
+    "ctrl+a": "\x01",
+    "ctrl+e": "\x05",
+    "ctrl+k": "\x0b",
+    "ctrl+u": "\x15",
+    "ctrl+w": "\x17",
+    "ctrl+p": "\x10",
+    "ctrl+n": "\x0e",
+    "ctrl+f": "\x06",
+    "ctrl+b": "\x02",
+    "ctrl+\\": "\x1c",
+    "escape": "\x1b",
+    "esc": "\x1b",
+    "tab": "\x09",
+    "enter": "\r",
+    "up": "\x1b[A",
+    "down": "\x1b[B",
+    "left": "\x1b[D",
+    "right": "\x1b[C",
+    "↑": "\x1b[A",
+    "↓": "\x1b[B",
+  };
+
+  function resolveSequence(label, sequence) {
+    if (sequence) return sequence;
+    const key = label.toLowerCase().trim();
+    return SEQUENCE_MAP[key] || null;
+  }
+
+  function sendShortcut(label, sequence) {
+    const seq = resolveSequence(label, sequence);
+    if (!seq) return;
+    if (termWs && termWs.readyState === WebSocket.OPEN) {
+      termWs.send(seq);
+    }
+    if (terminal) terminal.focus();
+  }
+
+  // --- Shortcut Bar ---
+
+  const shortcutFixedRow = document.getElementById("shortcut-fixed-row");
+  const shortcutAiKeys   = document.getElementById("shortcut-ai-keys");
+
+  function isTmuxSession() {
+    const session = sessions.find((s) => s.id === activeSessionId);
+    return !!(session && session.name.startsWith("tmux:"));
+  }
+
+  function getSessionAiTool() {
+    const session = sessions.find((s) => s.id === activeSessionId);
+    return session ? (session.aiTool || null) : null;
+  }
+
+  // 每次调用时实时读取 termWs，不在创建按钮时捕获
+  function sendRaw(data) {
+    if (termWs && termWs.readyState === WebSocket.OPEN) termWs.send(data);
+    if (terminal) terminal.focus();
+  }
+
+  // tmux: prefix(Ctrl+B) 和命令字符分两次发，中间留 60ms
+  function sendTmuxCmd(cmdChar) {
+    sendRaw("\x02");
+    setTimeout(() => sendRaw(cmdChar), 60);
+  }
+
+  function makeBtn(label, desc, handler, extraClass) {
+    const btn = document.createElement("button");
+    btn.className = "shortcut-key-btn" + (extraClass ? " " + extraClass : "");
+    btn.title = desc || label;
+    btn.innerHTML = `<span class="key-label">${escapeHtml(label)}</span>` +
+      (desc ? `<span class="key-desc">${escapeHtml(desc)}</span>` : "");
+
+    // 移动端：区分点击和滑动，滑动超过 6px 不触发
+    let touchStartX = 0, touchStartY = 0;
+    btn.addEventListener("touchstart", (e) => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+    btn.addEventListener("touchend", (e) => {
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      const dy = e.changedTouches[0].clientY - touchStartY;
+      if (Math.abs(dx) > 6 || Math.abs(dy) > 6) return; // 是滑动，忽略
+      e.preventDefault();
+      handler();
+    });
+
+    btn.addEventListener("click", handler);
+    return btn;
+  }
+
+  function makeDivider() {
+    const d = document.createElement("span");
+    d.className = "shortcut-divider";
+    return d;
+  }
+
+  // 构建固定按钮行
+  function buildFixedRow() {
+    shortcutFixedRow.innerHTML = "";
+
+    // 方向键 + ESC（所有 session 共用）
+    const arrowKeys = [
+      { label: "↑", seq: "\x1b[A" },
+      { label: "↓", seq: "\x1b[B" },
+      { label: "←", seq: "\x1b[D" },
+      { label: "→", seq: "\x1b[C" },
+    ];
+    arrowKeys.forEach(({ label, seq }) => {
+      shortcutFixedRow.appendChild(makeBtn(label, null, () => sendRaw(seq)));
+    });
+    shortcutFixedRow.appendChild(makeBtn("ESC", null, () => sendRaw("\x1b")));
+
+    if (isTmuxSession()) {
+      shortcutFixedRow.appendChild(makeDivider());
+
+      // prefix+[ 进入 copy-mode
+      shortcutFixedRow.appendChild(makeBtn("滚动", "进入 copy-mode (prefix+[)",
+        () => sendTmuxCmd("["), "tmux-btn"));
+      // prefix+PageUp 上翻页
+      shortcutFixedRow.appendChild(makeBtn("PgUp", "上翻页 (prefix+PageUp)",
+        () => sendTmuxCmd("\x1b[5~"), "tmux-btn"));
+      // copy-mode 内 q 退出
+      shortcutFixedRow.appendChild(makeBtn("q", "退出 copy-mode",
+        () => sendRaw("q"), "tmux-btn"));
+
+      shortcutFixedRow.appendChild(makeDivider());
+
+      // prefix+c 新建窗口
+      shortcutFixedRow.appendChild(makeBtn("新窗口", "prefix+c 新建 window",
+        () => sendTmuxCmd("c"), "tmux-btn"));
+      // prefix+, 重命名
+      shortcutFixedRow.appendChild(makeBtn("改名", "prefix+, 重命名 window",
+        () => sendTmuxCmd(","), "tmux-btn"));
+      // prefix+n/p 切换窗口
+      shortcutFixedRow.appendChild(makeBtn("→窗口", "prefix+n 下一个 window",
+        () => sendTmuxCmd("n"), "tmux-btn"));
+      shortcutFixedRow.appendChild(makeBtn("←窗口", "prefix+p 上一个 window",
+        () => sendTmuxCmd("p"), "tmux-btn"));
+      // prefix+%/" 分割
+      shortcutFixedRow.appendChild(makeBtn("竖分", "prefix+% 垂直分割 pane",
+        () => sendTmuxCmd("%"), "tmux-btn"));
+      shortcutFixedRow.appendChild(makeBtn("横分", 'prefix+" 水平分割 pane',
+        () => sendTmuxCmd('"'), "tmux-btn"));
+      // prefix+x/z 关闭/最大化
+      shortcutFixedRow.appendChild(makeBtn("关面板", "prefix+x 关闭当前 pane",
+        () => sendTmuxCmd("x"), "tmux-btn"));
+      shortcutFixedRow.appendChild(makeBtn("最大化", "prefix+z 最大化/还原 pane",
+        () => sendTmuxCmd("z"), "tmux-btn"));
+      // prefix+d detach
+      shortcutFixedRow.appendChild(makeBtn("Detach", "prefix+d 分离当前会话",
+        () => sendTmuxCmd("d"), "tmux-btn"));
+
+    } else {
+      const aiTool = getSessionAiTool();
+
+      if (aiTool === "claude") {
+        shortcutFixedRow.appendChild(makeDivider());
+        // Ctrl+C 中断当前操作
+        shortcutFixedRow.appendChild(makeBtn("Ctrl+C", "中断当前操作",
+          () => sendRaw("\x03"), "claude-btn"));
+        // Ctrl+D 退出 / EOF
+        shortcutFixedRow.appendChild(makeBtn("Ctrl+D", "退出 / EOF",
+          () => sendRaw("\x04"), "claude-btn"));
+        // 接受（y + Enter）
+        shortcutFixedRow.appendChild(makeBtn("接受 y", "输入 y 确认操作",
+          () => sendRaw("y\r"), "claude-btn"));
+        // 拒绝（n + Enter）
+        shortcutFixedRow.appendChild(makeBtn("拒绝 n", "输入 n 拒绝操作",
+          () => sendRaw("n\r"), "claude-btn"));
+
+        shortcutFixedRow.appendChild(makeDivider());
+        // /clear 清除对话历史
+        shortcutFixedRow.appendChild(makeBtn("/clear", "清除对话历史",
+          () => sendRaw("/clear\r"), "claude-btn"));
+        // /compact 压缩上下文
+        shortcutFixedRow.appendChild(makeBtn("/compact", "压缩上下文",
+          () => sendRaw("/compact\r"), "claude-btn"));
+        // /cost 查看 token 用量
+        shortcutFixedRow.appendChild(makeBtn("/cost", "查看 token 用量",
+          () => sendRaw("/cost\r"), "claude-btn"));
+        // /doctor 诊断环境
+        shortcutFixedRow.appendChild(makeBtn("/doctor", "诊断环境",
+          () => sendRaw("/doctor\r"), "claude-btn"));
+
+      } else if (aiTool === "codex") {
+        shortcutFixedRow.appendChild(makeDivider());
+        // Ctrl+C 中断
+        shortcutFixedRow.appendChild(makeBtn("Ctrl+C", "中断当前操作",
+          () => sendRaw("\x03"), "codex-btn"));
+        // Ctrl+D 退出
+        shortcutFixedRow.appendChild(makeBtn("Ctrl+D", "退出 Codex",
+          () => sendRaw("\x04"), "codex-btn"));
+        // 接受 a（approve all changes）
+        shortcutFixedRow.appendChild(makeBtn("接受 a", "输入 a 接受所有变更",
+          () => sendRaw("a\r"), "codex-btn"));
+        // 拒绝 r（reject）
+        shortcutFixedRow.appendChild(makeBtn("拒绝 r", "输入 r 拒绝变更",
+          () => sendRaw("r\r"), "codex-btn"));
+        // 查看 diff d
+        shortcutFixedRow.appendChild(makeBtn("Diff d", "输入 d 查看 diff",
+          () => sendRaw("d\r"), "codex-btn"));
+
+        shortcutFixedRow.appendChild(makeDivider());
+        // Tab 补全
+        shortcutFixedRow.appendChild(makeBtn("Tab", "补全",
+          () => sendRaw("\x09"), "codex-btn"));
+        // Ctrl+R 搜索历史
+        shortcutFixedRow.appendChild(makeBtn("Ctrl+R", "搜索历史命令",
+          () => sendRaw("\x12"), "codex-btn"));
+      }
+    }
+
+    // --- 所有类型共用：清空输入 + 配色切换 ---
+    shortcutFixedRow.appendChild(makeDivider());
+
+    // 清空输入框（Ctrl+U）—— 需确认防误触
+    shortcutFixedRow.appendChild(makeBtn("清空", "清空当前输入行（需确认）", () => {
+      showConfirmPopup("清空当前输入行？", () => sendRaw("\x15"));
+    }, "util-btn"));
+
+    // 配色切换
+    shortcutFixedRow.appendChild(makeBtn("🎨", "切换配色方案", () => {
+      showThemePicker();
+    }, "util-btn"));
+  }
+
+  // --- 确认弹窗（防误触）---
+  function showConfirmPopup(message, onConfirm) {
+    const existing = document.getElementById("confirm-popup");
+    if (existing) existing.remove();
+
+    const popup = document.createElement("div");
+    popup.id = "confirm-popup";
+    popup.innerHTML = `
+      <div class="confirm-popup-inner">
+        <div class="confirm-popup-msg">${escapeHtml(message)}</div>
+        <div class="confirm-popup-btns">
+          <button class="confirm-cancel">取消</button>
+          <button class="confirm-ok">确认</button>
+        </div>
+      </div>
+    `;
+
+    popup.querySelector(".confirm-cancel").addEventListener("click", () => popup.remove());
+    popup.querySelector(".confirm-ok").addEventListener("click", () => {
+      popup.remove();
+      onConfirm();
+    });
+    // 点击遮罩关闭
+    popup.addEventListener("click", (e) => { if (e.target === popup) popup.remove(); });
+
+    document.body.appendChild(popup);
+  }
+
+  // --- 配色选择器 ---
+  function showThemePicker() {
+    const existing = document.getElementById("theme-picker");
+    if (existing) { existing.remove(); return; }
+
+    const picker = document.createElement("div");
+    picker.id = "theme-picker";
+
+    COLOR_THEMES.forEach((t) => {
+      const btn = document.createElement("button");
+      btn.className = "theme-swatch" + (t.id === currentThemeId ? " active" : "");
+      btn.title = t.name;
+      btn.style.setProperty("--swatch-bg", t.bg);
+      btn.innerHTML = `<span class="swatch-dot"></span><span class="swatch-name">${escapeHtml(t.name)}</span>`;
+      btn.addEventListener("click", () => {
+        applyTheme(t.id);
+        picker.querySelectorAll(".theme-swatch").forEach((el) => el.classList.remove("active"));
+        btn.classList.add("active");
+      });
+      picker.appendChild(btn);
+    });
+
+    // 关闭按钮
+    const closeRow = document.createElement("div");
+    closeRow.style.cssText = "text-align:right;padding:4px 6px 2px";
+    const closeBtn = document.createElement("button");
+    closeBtn.textContent = "✕";
+    closeBtn.style.cssText = "background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;padding:2px 6px";
+    closeBtn.addEventListener("click", () => picker.remove());
+    closeRow.appendChild(closeBtn);
+    picker.insertBefore(closeRow, picker.firstChild);
+
+    // 挂到 shortcut-fixed-row 下方
+    const bar = document.getElementById("shortcut-bar");
+    bar.appendChild(picker);
+
+    // 点击外部关闭
+    setTimeout(() => {
+      document.addEventListener("click", function handler(e) {
+        if (!picker.contains(e.target)) {
+          picker.remove();
+          document.removeEventListener("click", handler);
+        }
+      });
+    }, 50);
+  }
+
+  // AI 分析（只在用户点刷新时触发，不自动执行）
+  let _fetchSeq = 0;
+
+  async function fetchShortcutSuggestions() {
+    const seq = ++_fetchSeq;
+    const termText = getTerminalVisibleLines(30);
+
+    shortcutAiKeys.innerHTML = "";
+
+    if (!termText.trim()) {
+      shortcutAiKeys.innerHTML = '<span class="shortcut-loading">终端内容为空，请先执行命令</span>';
+      return;
+    }
+
+    const loadingSpan = document.createElement("span");
+    loadingSpan.className = "shortcut-loading";
+    loadingSpan.textContent = "AI 分析中…";
+    shortcutAiKeys.appendChild(loadingSpan);
+    shortcutRefreshBtn.classList.add("loading");
+
+    try {
+      const resp = await fetch("/api/ai-shortcuts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ terminalText: termText }),
+      });
+
+      const data = await resp.json();
+      if (seq !== _fetchSeq) return;
+      loadingSpan.remove();
+
+      if (!resp.ok) {
+        const s = document.createElement("span");
+        s.className = "shortcut-error";
+        s.textContent = data.error || `错误 ${resp.status}`;
+        shortcutAiKeys.appendChild(s);
+        return;
+      }
+
+      const items = data.items || [];
+      items.forEach(({ label, desc, sequence }) => {
+        shortcutAiKeys.appendChild(makeBtn(label, desc,
+          () => {
+            const seq = resolveSequence(label, sequence);
+            if (seq) sendRaw(seq);
+          }
+        ));
+      });
+    } catch (e) {
+      if (seq !== _fetchSeq) return;
+      loadingSpan.remove();
+      const s = document.createElement("span");
+      s.className = "shortcut-error";
+      s.textContent = `请求失败: ${e.message}`;
+      shortcutAiKeys.appendChild(s);
+    } finally {
+      if (seq === _fetchSeq) shortcutRefreshBtn.classList.remove("loading");
+    }
+  }
+
+  function openShortcutBar() {
+    shortcutBar.style.display = "flex";
+    shortcutToggleBtn.classList.add("active");
+    shortcutBarOpen = true;
+    buildFixedRow();                          // 固定行每次打开时重建（session 可能已切换）
+
+    // AI 行：仅在服务端配置了 OPENROUTER_API_KEY 时显示
+    const aiRow = document.getElementById("shortcut-ai-row");
+    if (aiEnabled) {
+      aiRow.style.display = "flex";
+      if (shortcutAiKeys.children.length === 0) {
+        shortcutAiKeys.innerHTML = '<span class="shortcut-loading">点击 ⟳ 让 AI 分析当前终端内容</span>';
+      }
+    } else {
+      aiRow.style.display = "none";
+    }
+
+    if (fitAddon && terminal) fitAddon.fit();
+  }
+
+  function closeShortcutBar() {
+    shortcutBar.style.display = "none";
+    shortcutToggleBtn.classList.remove("active");
+    shortcutBarOpen = false;
+    if (fitAddon && terminal) fitAddon.fit();
+  }
+
+  function toggleShortcutBar() {
+    shortcutBarOpen ? closeShortcutBar() : openShortcutBar();
+  }
+
+  shortcutToggleBtn.addEventListener("click", toggleShortcutBar);
+  shortcutRefreshBtn.addEventListener("click", fetchShortcutSuggestions);
+
+  // --- Init ---
+  // 应用保存的配色（更新 --bg CSS 变量）
+  applyTheme(currentThemeId);
+  connectLobby();
+  updateMainView();
+
+  // 获取服务端配置（AI 功能是否启用）
+  fetch("/api/config")
+    .then((r) => r.json())
+    .then((cfg) => {
+      aiEnabled = !!cfg.aiEnabled;
+      // 若 AI 未启用，隐藏工具栏上的 AI 快捷键按钮
+      if (!aiEnabled) {
+        shortcutToggleBtn.style.display = "none";
+      }
+    })
+    .catch(() => { aiEnabled = false; });
+
+  fetch("/api/sessions")
+    .then((r) => r.json())
+    .then((list) => {
+      sessions = list;
+      renderSessionList();
+      initialLoadDone = true; // 之后 lobby 推送才允许更新列表
+      if (list.length > 0) {
+        switchSession(list[0].id);
+      }
+    });
+})();
