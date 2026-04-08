@@ -2,6 +2,20 @@
 
 基于浏览器的终端管理工具，支持多会话、tmux 接入、AI 快捷键分析，针对手机端优化。
 
+## 截图预览
+
+### Web 端
+
+| 主界面 + 侧边栏通知 | 通知面板 |
+|:---:|:---:|
+| ![web-main](screenshots/web-main.png) | ![web-notification](screenshots/web-notification.png) |
+
+### 手机端
+
+| 终端界面 | 侧边栏 + 呼吸灯 |
+|:---:|:---:|
+| ![mobile-main](screenshots/mobile-main.png) | ![mobile-sidebar](screenshots/mobile-sidebar.png) |
+
 ## 功能特性
 
 - **多会话管理**：侧边栏切换，支持任意数量并发终端会话
