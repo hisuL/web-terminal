@@ -6,19 +6,23 @@
 
 ### Web 端
 
-| 主界面 + 侧边栏通知 | 通知面板 |
+| 主界面（tmux 会话） | 通知面板 |
 |:---:|:---:|
 | ![web-main](screenshots/web-main.png) | ![web-notification](screenshots/web-notification.png) |
 
-| 新建会话向导（AI 工具选择） | tmux 会话管理 |
-|:---:|:---:|
-| ![web-wizard](screenshots/web-wizard.png) | ![web-tmux](screenshots/web-tmux.png) |
+| 新建会话 — 目录选择 | 新建会话 — AI 工具选择 | tmux 会话管理 |
+|:---:|:---:|:---:|
+| ![web-wizard-dir](screenshots/web-wizard-dir.png) | ![web-wizard-ai](screenshots/web-wizard-ai.png) | ![web-tmux](screenshots/web-tmux.png) |
 
 ### 手机端
 
-| 终端界面 | 侧边栏 + 呼吸灯 | 快捷键栏 | 新建会话向导 |
-|:---:|:---:|:---:|:---:|
-| ![mobile-main](screenshots/mobile-main.png) | ![mobile-sidebar](screenshots/mobile-sidebar.png) | ![mobile-shortcuts](screenshots/mobile-shortcuts.png) | ![mobile-wizard](screenshots/mobile-wizard.png) |
+| 终端界面 | 侧边栏 + 呼吸灯 | 快捷键栏 |
+|:---:|:---:|:---:|
+| ![mobile-main](screenshots/mobile-main.png) | ![mobile-sidebar](screenshots/mobile-sidebar.png) | ![mobile-shortcuts](screenshots/mobile-shortcuts.png) |
+
+| 新建会话 — 目录选择 | 新建会话 — AI 工具选择 |
+|:---:|:---:|
+| ![mobile-wizard-dir](screenshots/mobile-wizard-dir.png) | ![mobile-wizard-ai](screenshots/mobile-wizard-ai.png) |
 
 ## 功能特性
 
