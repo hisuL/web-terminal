@@ -13,6 +13,12 @@
   - Codex 会话：接受/拒绝、全自动模式等
   - tmux 会话：滚动、PgUp、新窗口、改名等
 - **AI 快捷键分析**（可选）：调用 OpenRouter API 分析终端内容，推荐下一步快捷键
+- **AI 通知铃铛**：Claude / Codex 会话等待确认、空闲、出错时自动弹通知
+  - Toolbar 铃铛图标 + 未读角标 + 摇动动画
+  - 侧边栏会话呼吸灯 + 铃铛闪动，一眼定位需要操作的会话
+  - 点击通知自动跳转对应会话
+  - 支持浏览器原生通知（页面后台时弹窗提醒）
+  - 可选通知声音（支持开关）
 - **配色主题**：内置 8 套程序员主题（Tokyo Night、Dracula、Gruvbox、Nord、One Dark、Catppuccin、Solarized、Monokai）
 - **手机端优化**：惯性滚动、输入法自适应、防误触
 
@@ -39,15 +45,35 @@ sudo yum groupinstall "Development Tools" && sudo yum install python3
 xcode-select --install
 ```
 
-## 安装
+## 安装（全新）
 
 ```bash
-# 解压后进入目录
+tar xzf web-terminal.tar.gz
 cd web-terminal
-
-# 安装依赖（会自动编译 node-pty 原生模块）
 npm install
 ```
+
+## 升级（已有旧版本）
+
+```bash
+# 1. 停止旧服务
+kill $(lsof -t -i :3456)
+
+# 2. 备份旧目录（可选）
+mv web-terminal web-terminal.bak
+
+# 3. 解压新包
+tar xzf web-terminal.tar.gz
+cd web-terminal
+
+# 4. 重新安装依赖（依赖没变可跳过，但建议执行以确保一致）
+npm install
+
+# 5. 重新启动
+node server.js
+```
+
+> **注意**：配置项（环境变量）保持不变，无需额外迁移。
 
 ## 配置
 
@@ -119,6 +145,15 @@ AI 快捷键分析功能依赖 [OpenRouter](https://openrouter.ai/) 服务，使
 ### 配色主题
 
 点击快捷键栏中的 🎨 按钮，从 8 套主题中选择，选择后自动保存。
+
+### 通知铃铛
+
+当 Claude / Codex 会话需要你操作时（等待确认、空闲、出错、会话结束），工具栏铃铛会自动摇动并显示未读数。
+
+- 点击铃铛查看通知列表，点击某条通知跳转到对应会话
+- 侧边栏中有未读通知的会话会显示红色呼吸灯 + 摇动铃铛图标
+- 页面在后台时会弹浏览器系统通知
+- 通知面板内可开关提示音
 
 ### 手机端使用
 
