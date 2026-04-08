@@ -6,7 +6,7 @@
 
 ### Web 端
 
-| 主界面（tmux 会话） | 通知面板 |
+| 主界面 | 通知面板 |
 |:---:|:---:|
 | <img src="screenshots/web-main.png" width="500"> | <img src="screenshots/web-notification.png" width="500"> |
 
