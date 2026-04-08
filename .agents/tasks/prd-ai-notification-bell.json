@@ -1,0 +1,258 @@
+{
+  "version": 1,
+  "project": "AI Tool Notification Bell",
+  "overview": "When Claude or Codex CLI running inside a web-terminal session reaches a stage that requires user attention (waiting for input, confirmation prompt, task completion, or error), show a bell icon notification in the toolbar. Users can click the bell to see a notification list, then click a notification to jump to the relevant session. This prevents users from having to stare at terminals waiting for AI tools to finish.",
+  "goals": [
+    "Detect when Claude Code CLI or Codex CLI reaches an actionable state (idle prompt, confirmation, completion, error)",
+    "Display a bell icon with unread count badge in the toolbar",
+    "Provide a dropdown notification panel listing recent notifications with session context",
+    "Clicking a notification switches to that session; if not already on that session, also opens the sidebar to show session list",
+    "Support browser Notification API when page is not in foreground",
+    "Support optional notification sound with a toggle button to enable/disable"
+  ],
+  "nonGoals": [
+    "No custom notification sound files — use system default notification sound only",
+    "No persistent storage of notifications across page reloads",
+    "No notification settings page or per-session notification config",
+    "No detection for non-AI tool sessions (plain terminal sessions do not trigger notifications)"
+  ],
+  "successMetrics": [
+    "Notifications appear within 2 seconds of AI tool reaching an actionable state",
+    "Zero duplicate notifications within 5-second debounce window for the same session",
+    "Bell badge count accurately reflects unread notification count",
+    "Clicking a notification from a different session correctly switches session and opens sidebar",
+    "Clicking a notification from the current session does not open sidebar, just focuses terminal",
+    "Browser notification fires when document.hidden is true",
+    "Sound toggle persists across the session via localStorage"
+  ],
+  "openQuestions": [
+    "Exact ANSI-stripped output patterns for Codex CLI completion and error states may need refinement after testing",
+    "Should notifications auto-dismiss after a certain time or only on manual clear?"
+  ],
+  "stack": {
+    "framework": "Vanilla JS (no framework, matches existing codebase)",
+    "hosting": "Self-hosted Node.js server",
+    "database": "None (in-memory only)",
+    "auth": "None"
+  },
+  "routes": [
+    { "path": "/", "name": "Main App", "purpose": "Single-page app — notification bell added to existing toolbar" }
+  ],
+  "uiNotes": [
+    "Bell icon positioned in toolbar-actions area, before existing buttons",
+    "Unread badge: small red circle with count number, top-right of bell icon",
+    "Dropdown panel: max-height 400px, scrollable, positioned below bell button",
+    "Each notification item shows: session name (with aiTool icon), message summary, relative time",
+    "Unread items have a subtle highlight; read items are dimmed",
+    "Sound toggle button: small speaker icon inside the notification panel header",
+    "Panel has a 'Clear all' button at the bottom",
+    "Notification panel should respect current color theme"
+  ],
+  "dataModel": [
+    {
+      "entity": "Notification",
+      "fields": ["id", "sessionId", "sessionName", "aiTool", "message", "time", "read"]
+    }
+  ],
+  "importFormat": {
+    "description": "Not applicable",
+    "example": {}
+  },
+  "rules": [
+    "Debounce: same session cannot trigger another notification within 5 seconds",
+    "Max 50 notifications stored in memory; oldest are dropped when limit exceeded",
+    "Claude detection patterns: idle prompt '>' at line start, '[Y/n]', 'Do you want to proceed', 'waiting for your', output idle for >3 seconds after activity",
+    "Codex detection patterns: '[a/r/d]', 'approve', 'reject', output idle for >3 seconds after activity",
+    "Completion detection: AI tool process exits (onExit event)",
+    "Error detection: error keywords in output ('Error:', 'fatal:', 'panic:', 'FAILED')",
+    "Server broadcasts notification via control message { type: 'notification', sessionId, sessionName, aiTool, message } to all lobby and session WebSocket clients",
+    "Browser Notification API: request permission on first bell click; fire native notification only when document.hidden === true",
+    "Sound: use system default via new Audio or Web Audio API; toggled via localStorage key 'notifSound' (default: enabled)",
+    "Clicking notification for different session: switchSession() + toggleSidebar(true)",
+    "Clicking notification for current session: just terminal.focus(), no sidebar toggle"
+  ],
+  "qualityGates": [
+    "node server.js starts without errors",
+    "e2e test: notification appears when AI tool pattern is detected",
+    "UI test: bell icon renders, click opens panel, click notification switches session"
+  ],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Server-side AI output pattern detection",
+      "status": "done",
+      "dependsOn": [],
+      "description": "As a developer, I want the server to detect when a Claude or Codex session reaches an actionable state so that the server can broadcast a notification.",
+      "acceptanceCriteria": [
+        "In server.js ptyProcess.onData callback, for sessions with aiTool set to 'claude' or 'codex', scan recent output for known patterns",
+        "Claude patterns detected: '>' prompt at line start after output, '[Y/n]' or '[y/N]' confirmation prompts, 'Do you want to proceed'",
+        "Codex patterns detected: '[a/r/d]' approval prompt, 'approve' / 'reject' keywords in prompt context",
+        "Error patterns detected for both: lines containing 'Error:', 'fatal:', 'panic:', 'FAILED'",
+        "Idle detection: if aiTool session has had output activity then no output for 3+ seconds, treat as potential idle (use a timer reset on each onData)",
+        "Debounce: do not emit notification if same session emitted one within last 5 seconds",
+        "Example: Claude session outputs '[Y/n]' -> server generates notification { type: 'notification', sessionId, sessionName, aiTool: 'claude', message: 'Waiting for confirmation [Y/n]' }",
+        "Example: Codex session outputs approval prompt -> notification with message 'Waiting for approval [a/r/d]'",
+        "Negative case: plain terminal session (aiTool is null) outputs '[Y/n]' -> no notification generated",
+        "Negative case: same Claude session triggers pattern twice within 5 seconds -> only first notification sent"
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "Server broadcasts notification to all WebSocket clients",
+      "status": "done",
+      "dependsOn": ["US-001"],
+      "description": "As a developer, I want notification messages broadcast to all connected clients so that every open browser tab receives the alert.",
+      "acceptanceCriteria": [
+        "New function broadcastNotification(sessionId, sessionName, aiTool, message) sends control message to all lobby clients and all session clients",
+        "Control message format: { type: 'notification', sessionId, sessionName, aiTool, message, time: Date.now() }",
+        "Broadcast uses existing sendCtrl helper and CTRL_PREFIX protocol",
+        "Example: notification broadcast -> all connected WebSocket clients receive the control message",
+        "Negative case: no WebSocket clients connected -> broadcast completes without error",
+        "Process exit notification: when aiTool session's ptyProcess fires onExit, broadcast a notification with message 'Session ended (exit code: N)'"
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Frontend notification state management",
+      "status": "done",
+      "dependsOn": ["US-002"],
+      "description": "As a developer, I want a client-side notification store so that the UI can track, display, and manage notifications.",
+      "acceptanceCriteria": [
+        "Add notifications array in app.js state: each item { id, sessionId, sessionName, aiTool, message, time, read }",
+        "addNotification(data) pushes to array, assigns unique id, caps at 50 items (removes oldest)",
+        "markAsRead(id) sets read=true for given notification",
+        "markAllAsRead() sets all to read",
+        "clearAll() empties the array",
+        "getUnreadCount() returns count of items where read===false",
+        "Both lobbyWs.onmessage and termWs.onmessage handle msg.type==='notification' by calling addNotification",
+        "Example: receive notification message -> notifications array length increases by 1, unread count increases by 1",
+        "Negative case: receive notification for a session that was already deleted -> still stored (notification is historical)"
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "Bell icon with unread badge in toolbar",
+      "status": "done",
+      "dependsOn": ["US-003"],
+      "description": "As a user, I want to see a bell icon in the toolbar with an unread count badge so I know when AI tools need my attention.",
+      "acceptanceCriteria": [
+        "Add bell button element in index.html toolbar-actions div, before existing buttons",
+        "Bell uses Unicode character or SVG bell icon",
+        "Red badge circle with unread count number positioned top-right of bell icon",
+        "Badge is hidden when unread count is 0",
+        "Badge updates reactively whenever notifications array changes (call updateBellBadge after addNotification, markAsRead, clearAll)",
+        "Style bell and badge in style.css, respecting theme CSS variables",
+        "Example: 3 unread notifications -> badge shows '3'",
+        "Example: all read -> badge hidden",
+        "Negative case: 0 notifications -> no badge, bell still visible"
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "Notification dropdown panel",
+      "status": "done",
+      "dependsOn": ["US-004"],
+      "description": "As a user, I want to click the bell to see a dropdown list of recent notifications so I can review what needs attention.",
+      "acceptanceCriteria": [
+        "Clicking bell toggles a dropdown panel below the bell button",
+        "Panel has header with title 'Notifications' and a sound toggle button (speaker icon)",
+        "Panel lists notifications in reverse chronological order (newest first)",
+        "Each item shows: aiTool icon (robot for Claude, lightning for Codex), session name, message summary, relative time (e.g., '2m ago')",
+        "Unread items have highlighted background; read items are dimmed",
+        "Panel footer has 'Clear all' button and 'Mark all read' button",
+        "Panel max-height 400px with overflow-y scroll",
+        "Clicking outside the panel closes it",
+        "Panel respects current color theme (uses CSS variables --bg, --text-dim, etc.)",
+        "Example: 5 notifications, 3 unread -> panel shows 5 items, 3 highlighted",
+        "Negative case: 0 notifications -> panel shows 'No notifications' placeholder text"
+      ]
+    },
+    {
+      "id": "US-006",
+      "title": "Click notification to navigate to session",
+      "status": "done",
+      "dependsOn": ["US-005"],
+      "description": "As a user, I want to click a notification to jump to the relevant session so I can respond to the AI tool's prompt.",
+      "acceptanceCriteria": [
+        "Clicking a notification item marks it as read and closes the dropdown panel",
+        "If notification.sessionId !== activeSessionId: call switchSession(sessionId) AND toggleSidebar(true) to show session list with the target session highlighted",
+        "If notification.sessionId === activeSessionId: do NOT open sidebar, just call terminal.focus()",
+        "If the session no longer exists (was closed): show a brief toast 'Session no longer exists' and do nothing else",
+        "After navigation, update bell badge count",
+        "Example: user on session A, clicks notification for session B -> switches to B, sidebar opens showing B as active",
+        "Example: user on session B, clicks notification for session B -> sidebar stays closed, terminal gets focus",
+        "Negative case: notification references deleted session -> toast message, no crash"
+      ]
+    },
+    {
+      "id": "US-007",
+      "title": "Browser Notification API integration",
+      "status": "done",
+      "dependsOn": ["US-003"],
+      "description": "As a user, I want to receive browser notifications when the page is in the background so I don't miss AI tool prompts.",
+      "acceptanceCriteria": [
+        "On first bell button click, request Notification.requestPermission() if not already granted",
+        "When addNotification is called and document.hidden === true and permission === 'granted': fire new Notification with title '[aiTool] - sessionName' and body = message",
+        "Clicking the browser notification focuses the window/tab (window.focus())",
+        "Do not fire browser notification if document.hidden === false (user is on the page)",
+        "Example: page in background, Claude session needs confirmation -> system notification popup appears",
+        "Negative case: user denied notification permission -> no browser notification, in-app bell still works",
+        "Negative case: page in foreground -> no browser notification fired"
+      ]
+    },
+    {
+      "id": "US-008",
+      "title": "Notification sound with toggle",
+      "status": "done",
+      "dependsOn": ["US-005"],
+      "description": "As a user, I want an optional notification sound so I can hear when AI tools need attention, with the ability to mute it.",
+      "acceptanceCriteria": [
+        "When a notification arrives and sound is enabled: play system default notification sound",
+        "Use Web Audio API to generate a short sine-wave beep as fallback if system sound unavailable",
+        "Sound toggle button in notification panel header: speaker icon, toggles between enabled/disabled",
+        "Sound preference stored in localStorage key 'notifSound' (values: 'on' / 'off', default 'on')",
+        "Toggle button visual state reflects current setting (e.g., speaker vs muted speaker icon)",
+        "Sound only plays for new notifications, not when viewing existing ones",
+        "Example: sound on, new notification arrives -> beep plays",
+        "Example: sound off, new notification arrives -> no sound, bell badge still updates",
+        "Negative case: browser blocks autoplay -> gracefully catch error, no crash"
+      ]
+    },
+    {
+      "id": "US-009",
+      "title": "Notification styles matching theme system",
+      "status": "done",
+      "dependsOn": ["US-004", "US-005"],
+      "description": "As a user, I want the notification UI to match my selected color theme so the interface feels cohesive.",
+      "acceptanceCriteria": [
+        "All notification UI elements (bell, badge, dropdown panel, items) use existing CSS variables (--bg, --text-dim, --accent, etc.)",
+        "Badge uses a red/accent color that is visible across all 8 color themes",
+        "Dropdown panel background matches terminal background with slight contrast",
+        "Unread highlight color works across all themes (test Tokyo Night, Dracula, Solarized, Nord at minimum)",
+        "Notification panel adapts to mobile viewport (full width on screens <= 768px)",
+        "Example: switch from Tokyo Night to Solarized -> notification panel colors update immediately",
+        "Negative case: no theme set (default Tokyo Night) -> notification UI renders correctly"
+      ]
+    },
+    {
+      "id": "US-010",
+      "title": "End-to-end and UI testing",
+      "status": "done",
+      "dependsOn": ["US-001", "US-002", "US-003", "US-004", "US-005", "US-006", "US-007", "US-008", "US-009"],
+      "description": "As a developer, I want e2e and UI tests to verify the notification system works correctly.",
+      "acceptanceCriteria": [
+        "Server starts without errors with node server.js",
+        "E2E test: create a session with aiTool='claude', send simulated PTY output containing '[Y/n]', verify notification control message is broadcast within 2 seconds",
+        "E2E test: verify debounce — send pattern twice within 5 seconds, only one notification broadcast",
+        "E2E test: verify no notification for non-AI session outputting same pattern",
+        "UI test: bell icon is rendered in toolbar when page loads",
+        "UI test: clicking bell opens dropdown panel, clicking again closes it",
+        "UI test: when notification exists, clicking it calls switchSession for different session",
+        "UI test: badge count displays correctly and hides when all read",
+        "UI test: sound toggle changes localStorage value and icon state",
+        "Example: full flow — AI session triggers pattern -> server detects -> broadcasts -> client shows badge -> click bell -> see notification -> click notification -> switch to session",
+        "Negative case: server restart clears all notifications (no persistence expected)"
+      ]
+    }
+  ]
+}

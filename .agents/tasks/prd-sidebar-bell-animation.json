@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "project": "Sidebar Bell Icon & Animation Enhancement",
+  "overview": "Enhance the notification system by adding bell icons to session items in the sidebar and a shaking animation to the toolbar bell. When a session has unread notifications, its sidebar entry shows a shaking bell icon with a breathing glow effect on the row. The toolbar bell also shakes when there are unread notifications. All animations stop when the user switches to that session.",
+  "goals": [
+    "Add a small bell icon to each session item in the sidebar that has unread notifications",
+    "Apply a breathing glow (pulsing background) effect to sidebar session items with unread notifications",
+    "Apply a shaking/ringing animation to both the sidebar bell icon and the toolbar bell icon when unread notifications exist",
+    "Stop all animations for a session when the user switches to it (marks notifications as read)"
+  ],
+  "nonGoals": [
+    "No changes to the notification detection logic on the server side",
+    "No changes to the notification dropdown panel behavior",
+    "No per-session notification count badge in sidebar (just bell icon presence + animation)",
+    "No sound changes"
+  ],
+  "successMetrics": [
+    "Sidebar session item shows shaking bell icon within 1 second of receiving an unread notification for that session",
+    "Sidebar session item has visible breathing glow effect when it has unread notifications",
+    "Toolbar bell icon shakes when any session has unread notifications",
+    "All animations for a session stop immediately when user switches to that session",
+    "Animations work correctly across all 8 color themes"
+  ],
+  "openQuestions": [],
+  "stack": {
+    "framework": "Vanilla JS (existing codebase)",
+    "hosting": "Self-hosted Node.js",
+    "database": "None",
+    "auth": "None"
+  },
+  "routes": [
+    { "path": "/", "name": "Main App", "purpose": "Single-page app — modifications to sidebar and toolbar" }
+  ],
+  "uiNotes": [
+    "Sidebar bell icon: small bell character or SVG, placed after session name, only visible when session has unread notifications",
+    "Breathing glow: subtle pulsing background-color animation on the session-item row, using CSS @keyframes with theme-aware colors",
+    "Bell shake: CSS @keyframes rotation animation (-15deg to +15deg) on both sidebar bell and toolbar bell",
+    "Toolbar bell shake: only active when getUnreadCount() > 0",
+    "Animations must be smooth (use CSS animations, not JS intervals)",
+    "Mobile responsive: animations should not cause layout shifts"
+  ],
+  "dataModel": [],
+  "importFormat": {
+    "description": "Not applicable",
+    "example": {}
+  },
+  "rules": [
+    "A session has unread notifications if notifications array contains any item where sessionId matches and read===false",
+    "When user switches to a session (switchSession), all notifications for that session should be marked as read",
+    "Toolbar bell shakes when global unread count > 0, stops when unread count reaches 0",
+    "Sidebar bell icon + breathing glow appear per-session based on that session's unread notification count",
+    "renderSessionList must check unread status per session and apply appropriate CSS classes",
+    "CSS animations use @keyframes for shake (transform: rotate) and breathe (background-color opacity pulse)",
+    "Breathing glow color should use rgba version of --accent or similar theme variable for cross-theme compatibility"
+  ],
+  "qualityGates": [
+    "node server.js starts without errors",
+    "Chrome DevTools automated UI test: bell icon appears in sidebar when notification exists",
+    "Chrome DevTools automated UI test: toolbar bell has shake class when unread > 0",
+    "Chrome DevTools automated UI test: switching to session removes animations"
+  ],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "CSS keyframe animations for bell shake and breathing glow",
+      "status": "done",
+      "dependsOn": [],
+      "description": "As a developer, I want CSS @keyframes animations defined in style.css so that bell icons can shake and session rows can have a breathing glow effect.",
+      "acceptanceCriteria": [
+        "Add @keyframes 'bell-shake' animation: rotates between -15deg, 15deg, -10deg, 10deg, -5deg, 0deg over ~0.6s, repeating",
+        "Add @keyframes 'breathe-glow' animation: pulses background-color from transparent to rgba(accent, 0.12) and back over ~2s, repeating",
+        "Add CSS class '.bell-shaking' that applies bell-shake animation to any element",
+        "Add CSS class '.session-breathing' that applies breathe-glow animation to .session-item elements",
+        "Add CSS class '.session-bell-icon' for the small bell icon in sidebar items: font-size, positioning, inline display",
+        "Animations are smooth and do not cause layout shifts",
+        "Example: element with class 'bell-shaking' visually shakes continuously",
+        "Negative case: element without the class has no animation"
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "Track unread notifications per session",
+      "status": "done",
+      "dependsOn": [],
+      "description": "As a developer, I want a helper function to check unread notification count per session so that the UI can decide which sessions need visual indicators.",
+      "acceptanceCriteria": [
+        "Add function getSessionUnreadCount(sessionId) that returns count of notifications where sessionId matches and read===false",
+        "Add function hasSessionUnread(sessionId) that returns boolean",
+        "Add function markSessionAsRead(sessionId) that marks all notifications for that sessionId as read, then calls updateBellBadge() and renderSessionList()",
+        "In switchSession(), call markSessionAsRead(id) so switching to a session clears its unread notifications",
+        "Example: session A has 3 unread notifications -> hasSessionUnread(A) returns true, getSessionUnreadCount(A) returns 3",
+        "Example: switch to session A -> all 3 notifications marked read, hasSessionUnread(A) returns false",
+        "Negative case: session B has 0 unread notifications -> hasSessionUnread(B) returns false"
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Sidebar session items show bell icon and breathing glow",
+      "status": "done",
+      "dependsOn": ["US-001", "US-002"],
+      "description": "As a user, I want to see a shaking bell icon and breathing glow on sidebar session items that have unread notifications so I can quickly identify which sessions need attention.",
+      "acceptanceCriteria": [
+        "In renderSessionList(), for each session check hasSessionUnread(session.id)",
+        "If session has unread: add CSS class 'session-breathing' to the session-item div",
+        "If session has unread: append a small bell icon span (Unicode bell character) with classes 'session-bell-icon bell-shaking' inside the session-info div, after session-name",
+        "If session has no unread: no bell icon, no breathing class",
+        "When notifications change (addNotification, markAsRead, clearAll), call renderSessionList() to refresh indicators",
+        "Example: session 'claude@project' receives notification -> sidebar row glows and shows shaking bell",
+        "Example: user switches to that session -> glow and bell disappear",
+        "Negative case: session with aiTool=null and no notifications -> no bell, no glow"
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "Toolbar bell icon shaking animation",
+      "status": "done",
+      "dependsOn": ["US-001", "US-002"],
+      "description": "As a user, I want the toolbar bell icon to shake when there are any unread notifications so I have a persistent visual cue.",
+      "acceptanceCriteria": [
+        "In updateBellBadge(), if unread count > 0, add class 'bell-shaking' to #notif-bell-btn",
+        "If unread count === 0, remove class 'bell-shaking' from #notif-bell-btn",
+        "Animation is continuous while unread > 0",
+        "Animation stops immediately when all notifications are read or cleared",
+        "Example: 1 unread notification -> toolbar bell shakes",
+        "Example: user clicks 'Mark all read' -> toolbar bell stops shaking",
+        "Negative case: 0 unread notifications -> no shaking animation on toolbar bell"
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "Cross-theme and mobile compatibility testing",
+      "status": "done",
+      "dependsOn": ["US-001", "US-002", "US-003", "US-004"],
+      "description": "As a developer, I want automated UI tests via Chrome DevTools to verify the bell and animation features work correctly.",
+      "acceptanceCriteria": [
+        "Test: create AI session, trigger notification, verify sidebar session-item has class 'session-breathing'",
+        "Test: verify sidebar session-item contains element with class 'session-bell-icon bell-shaking'",
+        "Test: verify #notif-bell-btn has class 'bell-shaking' when unread > 0",
+        "Test: switch to session with unread, verify 'session-breathing' class is removed from that session's sidebar item",
+        "Test: verify #notif-bell-btn 'bell-shaking' class removed when all read",
+        "Test: breathing glow uses theme-aware color (rgba of --accent variable)",
+        "Example: full flow — notification arrives -> sidebar glows + shakes -> switch to session -> animations stop",
+        "Negative case: session with no notifications never receives animation classes"
+      ]
+    }
+  ]
+}

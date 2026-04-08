@@ -220,6 +220,8 @@
         renderSessionList();
       } else if (msg.type === "created") {
         switchSession(msg.data.id);
+      } else if (msg.type === "notification") {
+        addNotification(msg);
       }
     };
 
@@ -233,10 +235,12 @@
     sessionList.innerHTML = "";
     sessions.forEach((s) => {
       const div = document.createElement("div");
-      div.className = "session-item" + (s.id === activeSessionId ? " active" : "");
+      const unread = hasSessionUnread(s.id);
+      div.className = "session-item" + (s.id === activeSessionId ? " active" : "") + (unread ? " session-breathing" : "");
+      const bellHtml = unread ? '<span class="session-bell-icon bell-shaking">\u{1F514}</span>' : "";
       div.innerHTML = `
         <div class="session-info">
-          <div class="session-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</div>
+          <div class="session-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}${bellHtml}</div>
           <div class="session-meta">${formatTime(s.createdAt)} · ${s.clients} conn</div>
         </div>
         <div class="session-actions">
@@ -743,6 +747,8 @@
     if (id === activeSessionId) return;
     disconnectTerminal();
     activeSessionId = id;
+    // Mark all notifications for this session as read
+    markSessionAsRead(id);
     renderSessionList();
     updateMainView();
     connectTerminal(id);
@@ -828,6 +834,8 @@
         } else if (msg.type === "sessions") {
           sessions = msg.data;
           renderSessionList();
+        } else if (msg.type === "notification") {
+          addNotification(msg);
         }
       } else {
         // Raw terminal data — write directly
@@ -1681,6 +1689,253 @@
 
   shortcutToggleBtn.addEventListener("click", toggleShortcutBar);
   shortcutRefreshBtn.addEventListener("click", fetchShortcutSuggestions);
+
+  // --- Notification System ---
+  const MAX_NOTIFICATIONS = 50;
+  const notifications = [];
+  let notifIdCounter = 0;
+  let notifPanelOpen = false;
+
+  const notifBellBtn = document.getElementById("notif-bell-btn");
+  const notifBadge = document.getElementById("notif-badge");
+  const notifPanel = document.getElementById("notif-panel");
+  const notifList = document.getElementById("notif-list");
+  const notifSoundToggle = document.getElementById("notif-sound-toggle");
+  const notifMarkAllRead = document.getElementById("notif-mark-all-read");
+  const notifClearAll = document.getElementById("notif-clear-all");
+
+  // Sound preference
+  let notifSoundEnabled = localStorage.getItem("notifSound") !== "off";
+  updateSoundToggleBtn();
+
+  function updateSoundToggleBtn() {
+    if (notifSoundEnabled) {
+      notifSoundToggle.innerHTML = "&#128264;"; // speaker
+      notifSoundToggle.classList.remove("muted");
+      notifSoundToggle.title = "Sound on (click to mute)";
+    } else {
+      notifSoundToggle.innerHTML = "&#128263;"; // muted speaker
+      notifSoundToggle.classList.add("muted");
+      notifSoundToggle.title = "Sound off (click to unmute)";
+    }
+  }
+
+  notifSoundToggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    notifSoundEnabled = !notifSoundEnabled;
+    localStorage.setItem("notifSound", notifSoundEnabled ? "on" : "off");
+    updateSoundToggleBtn();
+  });
+
+  // Play notification sound
+  function playNotifSound() {
+    if (!notifSoundEnabled) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
+    } catch {}
+  }
+
+  // State management — dedup by server timestamp + sessionId
+  const recentNotifKeys = new Set();
+
+  function addNotification(data) {
+    // Dedup: same sessionId + time means duplicate from lobby+session WS
+    const dedupKey = `${data.sessionId}-${data.time}`;
+    if (recentNotifKeys.has(dedupKey)) return;
+    recentNotifKeys.add(dedupKey);
+    // Clean old keys after 10s
+    setTimeout(() => recentNotifKeys.delete(dedupKey), 10000);
+
+    const notif = {
+      id: ++notifIdCounter,
+      sessionId: data.sessionId,
+      sessionName: data.sessionName,
+      aiTool: data.aiTool,
+      message: data.message,
+      time: data.time || Date.now(),
+      read: false,
+    };
+    notifications.unshift(notif);
+    while (notifications.length > MAX_NOTIFICATIONS) notifications.pop();
+    updateBellBadge();
+    renderNotifList();
+    renderSessionList();
+    playNotifSound();
+    fireBrowserNotification(notif);
+  }
+
+  function markAsRead(id) {
+    const n = notifications.find((n) => n.id === id);
+    if (n) n.read = true;
+    updateBellBadge();
+    renderNotifList();
+    renderSessionList();
+  }
+
+  function markAllAsRead() {
+    notifications.forEach((n) => (n.read = true));
+    updateBellBadge();
+    renderNotifList();
+    renderSessionList();
+  }
+
+  function clearAllNotifications() {
+    notifications.length = 0;
+    updateBellBadge();
+    renderNotifList();
+    renderSessionList();
+  }
+
+  function getUnreadCount() {
+    return notifications.filter((n) => !n.read).length;
+  }
+
+  function getSessionUnreadCount(sessionId) {
+    return notifications.filter((n) => n.sessionId === sessionId && !n.read).length;
+  }
+
+  function hasSessionUnread(sessionId) {
+    return notifications.some((n) => n.sessionId === sessionId && !n.read);
+  }
+
+  function markSessionAsRead(sessionId) {
+    notifications.forEach((n) => {
+      if (n.sessionId === sessionId) n.read = true;
+    });
+    updateBellBadge();
+    renderSessionList();
+  }
+
+  function updateBellBadge() {
+    const count = getUnreadCount();
+    if (count > 0) {
+      notifBadge.textContent = count > 99 ? "99+" : count;
+      notifBadge.style.display = "block";
+      notifBellBtn.classList.add("bell-shaking");
+    } else {
+      notifBadge.style.display = "none";
+      notifBellBtn.classList.remove("bell-shaking");
+    }
+  }
+
+  // Relative time formatting
+  function relativeTime(ts) {
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if (diff < 5) return "just now";
+    if (diff < 60) return diff + "s ago";
+    if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+    if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+    return Math.floor(diff / 86400) + "d ago";
+  }
+
+  function renderNotifList() {
+    notifList.innerHTML = "";
+    if (notifications.length === 0) {
+      notifList.innerHTML = '<div class="notif-empty">No notifications</div>';
+      return;
+    }
+    notifications.forEach((n) => {
+      const item = document.createElement("div");
+      item.className = "notif-item" + (n.read ? "" : " unread");
+      const icon = n.aiTool === "claude" ? "\u{1F916}" : n.aiTool === "codex" ? "\u26A1" : "\u{1F514}";
+      item.innerHTML = `
+        <span class="notif-item-icon">${icon}</span>
+        <div class="notif-item-body">
+          <div class="notif-item-session">${escapeHtml(n.sessionName)}</div>
+          <div class="notif-item-msg">${escapeHtml(n.message)}</div>
+        </div>
+        <span class="notif-item-time">${relativeTime(n.time)}</span>
+      `;
+      item.addEventListener("click", () => handleNotifClick(n));
+      notifList.appendChild(item);
+    });
+  }
+
+  function handleNotifClick(notif) {
+    markAsRead(notif.id);
+    closeNotifPanel();
+
+    // Check if session still exists
+    const sessionExists = sessions.some((s) => s.id === notif.sessionId);
+    if (!sessionExists) {
+      showCopyToast();
+      copyToast.textContent = "Session no longer exists";
+      setTimeout(() => { copyToast.textContent = "Copied!"; }, 1500);
+      return;
+    }
+
+    if (notif.sessionId !== activeSessionId) {
+      switchSession(notif.sessionId);
+      toggleSidebar(true);
+    } else {
+      if (terminal) terminal.focus();
+    }
+  }
+
+  // Panel toggle
+  function openNotifPanel() {
+    notifPanel.style.display = "flex";
+    notifPanelOpen = true;
+    renderNotifList();
+    // Request notification permission on first interaction
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }
+
+  function closeNotifPanel() {
+    notifPanel.style.display = "none";
+    notifPanelOpen = false;
+  }
+
+  function toggleNotifPanel() {
+    notifPanelOpen ? closeNotifPanel() : openNotifPanel();
+  }
+
+  notifBellBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleNotifPanel();
+  });
+
+  notifPanel.addEventListener("click", (e) => e.stopPropagation());
+
+  notifMarkAllRead.addEventListener("click", markAllAsRead);
+  notifClearAll.addEventListener("click", clearAllNotifications);
+
+  // Close panel when clicking outside
+  document.addEventListener("click", () => {
+    if (notifPanelOpen) closeNotifPanel();
+  });
+
+  // Browser Notification API
+  function fireBrowserNotification(notif) {
+    if (!document.hidden) return;
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    try {
+      const title = `${notif.aiTool === "claude" ? "Claude" : notif.aiTool === "codex" ? "Codex" : "Terminal"} - ${notif.sessionName}`;
+      const n = new Notification(title, { body: notif.message, tag: "web-terminal-" + notif.sessionId });
+      n.onclick = () => {
+        window.focus();
+        n.close();
+      };
+    } catch {}
+  }
+
+  // Update relative times periodically
+  setInterval(() => {
+    if (notifPanelOpen) renderNotifList();
+  }, 30000);
 
   // --- Init ---
   // 应用保存的配色（更新 --bg CSS 变量）

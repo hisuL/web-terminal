@@ -21,6 +21,112 @@ function sendCtrl(ws, obj) {
   }
 }
 
+// --- AI Notification Detection ---
+const NOTIF_DEBOUNCE_MS = 5000;
+const IDLE_TIMEOUT_MS = 3000;
+
+// Per-session notification state (keyed by session id)
+const notifState = new Map(); // { lastNotifTime, idleTimer }
+
+// Strip ANSI escape sequences from terminal output
+function stripAnsi(str) {
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+}
+
+// Claude CLI patterns
+const CLAUDE_PATTERNS = [
+  { regex: /\[Y\/n\]/i, message: "Waiting for confirmation [Y/n]" },
+  { regex: /\[y\/N\]/i, message: "Waiting for confirmation [y/N]" },
+  { regex: /Do you want to proceed/i, message: "Waiting for confirmation" },
+  { regex: /waiting for your/i, message: "Waiting for your input" },
+  { regex: /^>\s*$/m, message: "Ready for input" },
+];
+
+// Codex CLI patterns
+const CODEX_PATTERNS = [
+  { regex: /\[a\/r\/d\]/i, message: "Waiting for approval [a/r/d]" },
+  { regex: /approve|reject/i, message: "Waiting for approval" },
+];
+
+// Error patterns (shared)
+const ERROR_PATTERNS = [
+  { regex: /Error:/i, message: "Error detected" },
+  { regex: /fatal:/i, message: "Fatal error detected" },
+  { regex: /panic:/i, message: "Panic detected" },
+  { regex: /FAILED/i, message: "Failure detected" },
+];
+
+function detectAiPattern(data, aiTool) {
+  const cleaned = stripAnsi(data);
+  const patterns = aiTool === "claude" ? CLAUDE_PATTERNS : aiTool === "codex" ? CODEX_PATTERNS : [];
+  for (const p of patterns) {
+    if (p.regex.test(cleaned)) return p.message;
+  }
+  for (const p of ERROR_PATTERNS) {
+    if (p.regex.test(cleaned)) return p.message;
+  }
+  return null;
+}
+
+function canNotify(sessionId) {
+  const state = notifState.get(sessionId);
+  if (!state || !state.lastNotifTime) return true;
+  return Date.now() - state.lastNotifTime >= NOTIF_DEBOUNCE_MS;
+}
+
+function recordNotify(sessionId) {
+  const state = notifState.get(sessionId) || {};
+  state.lastNotifTime = Date.now();
+  notifState.set(sessionId, state);
+}
+
+function broadcastNotification(sessionId, sessionName, aiTool, message) {
+  const msg = { type: "notification", sessionId, sessionName, aiTool, message, time: Date.now() };
+  // Send to all lobby clients
+  for (const client of lobbyClients) {
+    sendCtrl(client, msg);
+  }
+  // Send to all session clients (all sessions, not just the triggering one)
+  for (const session of sessions.values()) {
+    for (const client of session.clients) {
+      sendCtrl(client, msg);
+    }
+  }
+}
+
+function resetIdleTimer(sessionId) {
+  const state = notifState.get(sessionId) || {};
+  if (state.idleTimer) clearTimeout(state.idleTimer);
+  state.idleTimer = null;
+  notifState.set(sessionId, state);
+}
+
+function startIdleTimer(sessionId, sessionName, aiTool) {
+  const state = notifState.get(sessionId) || {};
+  if (state.idleTimer) clearTimeout(state.idleTimer);
+  // Track output volume — only fire idle notification after substantial output
+  state.outputBytes = (state.outputBytes || 0);
+  if (state.outputBytes < 200) {
+    // Not enough output to consider idle meaningful (e.g. just initial prompt)
+    notifState.set(sessionId, state);
+    return;
+  }
+  state.idleTimer = setTimeout(() => {
+    if (canNotify(sessionId)) {
+      recordNotify(sessionId);
+      broadcastNotification(sessionId, sessionName, aiTool, "AI tool appears idle");
+    }
+    state.outputBytes = 0;
+  }, IDLE_TIMEOUT_MS);
+  notifState.set(sessionId, state);
+}
+
+function trackOutput(sessionId, dataLen) {
+  const state = notifState.get(sessionId) || {};
+  state.outputBytes = (state.outputBytes || 0) + dataLen;
+  notifState.set(sessionId, state);
+}
+
 // --- Session Management ---
 const sessions = new Map();
 
@@ -55,12 +161,36 @@ function createSession(name, shell = process.env.SHELL || "bash", cwd, aiTool) {
           client.send(data);
         }
       }
+
+      // AI notification detection
+      if (session.aiTool) {
+        trackOutput(id, data.length);
+        resetIdleTimer(id);
+
+        const message = detectAiPattern(data, session.aiTool);
+        if (message && canNotify(id)) {
+          recordNotify(id);
+          broadcastNotification(id, session.name, session.aiTool, message);
+        } else {
+          // No pattern or debounced — start idle timer
+          startIdleTimer(id, session.name, session.aiTool);
+        }
+      }
     }
   });
 
   ptyProcess.onExit(({ exitCode }) => {
     const session = sessions.get(id);
     if (session) {
+      // Clean up idle timer
+      resetIdleTimer(id);
+      notifState.delete(id);
+
+      // Broadcast exit notification for AI sessions
+      if (session.aiTool) {
+        broadcastNotification(id, session.name, session.aiTool, `Session ended (exit code: ${exitCode})`);
+      }
+
       for (const client of session.clients) {
         sendCtrl(client, { type: "exit", code: exitCode });
       }
