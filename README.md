@@ -4,61 +4,21 @@
 
 ## 截图预览
 
-> 点击标题展开查看大图，再次点击收起。
-
 ### Web 端
 
-<details>
-<summary><strong>主界面（tmux 会话）</strong></summary>
-<img src="screenshots/web-main.png">
-</details>
+| 主界面（tmux 会话） | 通知面板 |
+|:---:|:---:|
+| <img src="screenshots/web-main.png" width="500"> | <img src="screenshots/web-notification.png" width="500"> |
 
-<details>
-<summary><strong>通知面板</strong></summary>
-<img src="screenshots/web-notification.png">
-</details>
-
-<details>
-<summary><strong>新建会话 — 目录选择</strong></summary>
-<img src="screenshots/web-wizard-dir.png">
-</details>
-
-<details>
-<summary><strong>新建会话 — AI 工具选择</strong></summary>
-<img src="screenshots/web-wizard-ai.png">
-</details>
-
-<details>
-<summary><strong>tmux 会话管理</strong></summary>
-<img src="screenshots/web-tmux.png">
-</details>
+| 新建会话 — 目录选择 | 新建会话 — AI 工具选择 | tmux 会话管理 |
+|:---:|:---:|:---:|
+| <img src="screenshots/web-wizard-dir.png" width="350"> | <img src="screenshots/web-wizard-ai.png" width="350"> | <img src="screenshots/web-tmux.png" width="350"> |
 
 ### 手机端
 
-<details>
-<summary><strong>终端界面</strong></summary>
-<img src="screenshots/mobile-main.png" width="390">
-</details>
-
-<details>
-<summary><strong>侧边栏 + 通知呼吸灯</strong></summary>
-<img src="screenshots/mobile-sidebar.png" width="390">
-</details>
-
-<details>
-<summary><strong>手机端快捷键栏</strong></summary>
-<img src="screenshots/mobile-shortcuts.png" width="390">
-</details>
-
-<details>
-<summary><strong>新建会话 — 目录选择</strong></summary>
-<img src="screenshots/mobile-wizard-dir.png" width="390">
-</details>
-
-<details>
-<summary><strong>新建会话 — AI 工具选择</strong></summary>
-<img src="screenshots/mobile-wizard-ai.png" width="390">
-</details>
+| 终端界面 | 侧边栏 + 通知呼吸灯 | 手机端快捷键栏 | 目录选择 | AI 工具选择 |
+|:---:|:---:|:---:|:---:|:---:|
+| <img src="screenshots/mobile-main.png" width="180"> | <img src="screenshots/mobile-sidebar.png" width="180"> | <img src="screenshots/mobile-shortcuts.png" width="180"> | <img src="screenshots/mobile-wizard-dir.png" width="180"> | <img src="screenshots/mobile-wizard-ai.png" width="180"> |
 
 ## 功能特性
 
