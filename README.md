@@ -4,78 +4,61 @@
 
 ## 截图预览
 
-> 点击缩略图可展开大图查看，再次点击收起。
+> 点击标题展开查看大图，再次点击收起。
 
 ### Web 端
 
-<table>
-<tr>
-<td align="center" width="50%">
-<details><summary><strong>主界面（tmux 会话）</strong><br><img src="screenshots/web-main.png" width="400"></summary>
-<img src="screenshots/web-main.png" width="100%">
+<details>
+<summary><strong>主界面（tmux 会话）</strong></summary>
+<img src="screenshots/web-main.png">
 </details>
-</td>
-<td align="center" width="50%">
-<details><summary><strong>通知面板</strong><br><img src="screenshots/web-notification.png" width="400"></summary>
-<img src="screenshots/web-notification.png" width="100%">
+
+<details>
+<summary><strong>通知面板</strong></summary>
+<img src="screenshots/web-notification.png">
 </details>
-</td>
-</tr>
-<tr>
-<td align="center">
-<details><summary><strong>新建会话 — 目录选择</strong><br><img src="screenshots/web-wizard-dir.png" width="400"></summary>
-<img src="screenshots/web-wizard-dir.png" width="100%">
+
+<details>
+<summary><strong>新建会话 — 目录选择</strong></summary>
+<img src="screenshots/web-wizard-dir.png">
 </details>
-</td>
-<td align="center">
-<details><summary><strong>新建会话 — AI 工具选择</strong><br><img src="screenshots/web-wizard-ai.png" width="400"></summary>
-<img src="screenshots/web-wizard-ai.png" width="100%">
+
+<details>
+<summary><strong>新建会话 — AI 工具选择</strong></summary>
+<img src="screenshots/web-wizard-ai.png">
 </details>
-</td>
-</tr>
-<tr>
-<td align="center" colspan="2">
-<details><summary><strong>tmux 会话管理</strong><br><img src="screenshots/web-tmux.png" width="400"></summary>
-<img src="screenshots/web-tmux.png" width="100%">
+
+<details>
+<summary><strong>tmux 会话管理</strong></summary>
+<img src="screenshots/web-tmux.png">
 </details>
-</td>
-</tr>
-</table>
 
 ### 手机端
 
-<table>
-<tr>
-<td align="center" width="33%">
-<details><summary><strong>终端界面</strong><br><img src="screenshots/mobile-main.png" width="180"></summary>
-<img src="screenshots/mobile-main.png" width="100%">
+<details>
+<summary><strong>终端界面</strong></summary>
+<img src="screenshots/mobile-main.png" width="390">
 </details>
-</td>
-<td align="center" width="33%">
-<details><summary><strong>侧边栏 + 通知呼吸灯</strong><br><img src="screenshots/mobile-sidebar.png" width="180"></summary>
-<img src="screenshots/mobile-sidebar.png" width="100%">
+
+<details>
+<summary><strong>侧边栏 + 通知呼吸灯</strong></summary>
+<img src="screenshots/mobile-sidebar.png" width="390">
 </details>
-</td>
-<td align="center" width="33%">
-<details><summary><strong>手机端快捷键栏</strong><br><img src="screenshots/mobile-shortcuts.png" width="180"></summary>
-<img src="screenshots/mobile-shortcuts.png" width="100%">
+
+<details>
+<summary><strong>手机端快捷键栏</strong></summary>
+<img src="screenshots/mobile-shortcuts.png" width="390">
 </details>
-</td>
-</tr>
-<tr>
-<td align="center">
-<details><summary><strong>新建会话 — 目录选择</strong><br><img src="screenshots/mobile-wizard-dir.png" width="180"></summary>
-<img src="screenshots/mobile-wizard-dir.png" width="100%">
+
+<details>
+<summary><strong>新建会话 — 目录选择</strong></summary>
+<img src="screenshots/mobile-wizard-dir.png" width="390">
 </details>
-</td>
-<td align="center">
-<details><summary><strong>新建会话 — AI 工具选择</strong><br><img src="screenshots/mobile-wizard-ai.png" width="180"></summary>
-<img src="screenshots/mobile-wizard-ai.png" width="100%">
+
+<details>
+<summary><strong>新建会话 — AI 工具选择</strong></summary>
+<img src="screenshots/mobile-wizard-ai.png" width="390">
 </details>
-</td>
-<td></td>
-</tr>
-</table>
 
 ## 功能特性
 
