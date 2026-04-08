@@ -10,11 +10,15 @@
 |:---:|:---:|
 | ![web-main](screenshots/web-main.png) | ![web-notification](screenshots/web-notification.png) |
 
+| 新建会话向导（AI 工具选择） | tmux 会话管理 |
+|:---:|:---:|
+| ![web-wizard](screenshots/web-wizard.png) | ![web-tmux](screenshots/web-tmux.png) |
+
 ### 手机端
 
-| 终端界面 | 侧边栏 + 呼吸灯 |
-|:---:|:---:|
-| ![mobile-main](screenshots/mobile-main.png) | ![mobile-sidebar](screenshots/mobile-sidebar.png) |
+| 终端界面 | 侧边栏 + 呼吸灯 | 快捷键栏 | 新建会话向导 |
+|:---:|:---:|:---:|:---:|
+| ![mobile-main](screenshots/mobile-main.png) | ![mobile-sidebar](screenshots/mobile-sidebar.png) | ![mobile-shortcuts](screenshots/mobile-shortcuts.png) | ![mobile-wizard](screenshots/mobile-wizard.png) |
 
 ## 功能特性
 
