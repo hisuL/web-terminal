@@ -1216,6 +1216,7 @@
       // 创建纯文本 overlay，包含完整 scrollback 内容
       selectOverlay = document.createElement("pre");
       selectOverlay.id = "select-overlay";
+      selectOverlay.style.fontSize = currentFontSize + "px";
       selectOverlay.textContent = getTerminalText();
       terminalContainer.appendChild(selectOverlay);
 
