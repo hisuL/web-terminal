@@ -207,6 +207,9 @@
       root.setProperty("--border", t.ui.border);
       root.setProperty("--warning", t.ui.warning || t.ui.accent);
     }
+    // 更新 toolbar 主题名称
+    const themeLabel = document.getElementById("theme-name-label");
+    if (themeLabel) themeLabel.textContent = t.name;
   }
 
   // --- Visual Viewport: 键盘弹出时整体收缩，避免快捷键栏被遮住 ---
@@ -1740,9 +1743,8 @@
     closeRow.appendChild(closeBtn);
     picker.insertBefore(closeRow, picker.firstChild);
 
-    // 挂到 shortcut-fixed-row 下方
-    const bar = document.getElementById("shortcut-bar");
-    bar.appendChild(picker);
+    // 挂到 toolbar 下方
+    document.getElementById("toolbar").appendChild(picker);
 
     // 点击外部关闭
     setTimeout(() => {
