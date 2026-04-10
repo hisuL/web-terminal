@@ -23,37 +23,35 @@ function sendCtrl(ws, obj) {
 
 // --- AI Notification Detection ---
 const NOTIF_DEBOUNCE_MS = 5000;
-const IDLE_TIMEOUT_MS = 10000;
 
 // Per-session notification state (keyed by session id)
-const notifState = new Map(); // { lastNotifTime, idleTimer }
+const notifState = new Map(); // { lastNotifTime, lastPatternMsg }
 
 // Strip ANSI escape sequences from terminal output
 function stripAnsi(str) {
-  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+  return str.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "").replace(/\x1b[=>][^\n]*/g, "");
 }
 
-// Claude CLI patterns
+// Claude CLI patterns — confirmation / input / task complete
 const CLAUDE_PATTERNS = [
-  { regex: /\[Y\/n\]/i, message: "Waiting for confirmation [Y/n]" },
-  { regex: /\[y\/N\]/i, message: "Waiting for confirmation [y/N]" },
-  { regex: /Do you want to proceed/i, message: "Waiting for confirmation" },
-  { regex: /waiting for your/i, message: "Waiting for your input" },
-  { regex: /^>\s*$/m, message: "Ready for input" },
+  { regex: /\[Y\/n\]/i, message: "等待确认 [Y/n]" },
+  { regex: /\[y\/N\]/i, message: "等待确认 [y/N]" },
+  { regex: /Do you want to proceed/i, message: "等待确认" },
+  { regex: /waiting for your/i, message: "等待输入" },
+  { regex: /❯/, message: "任务完成，等待输入" },
 ];
 
 // Codex CLI patterns
 const CODEX_PATTERNS = [
-  { regex: /\[a\/r\/d\]/i, message: "Waiting for approval [a/r/d]" },
-  { regex: /approve|reject/i, message: "Waiting for approval" },
+  { regex: /\[a\/r\/d\]/i, message: "等待审批 [a/r/d]" },
+  { regex: /approve|reject/i, message: "等待审批" },
 ];
 
 // Error patterns (shared)
 const ERROR_PATTERNS = [
-  { regex: /Error:/i, message: "Error detected" },
-  { regex: /fatal:/i, message: "Fatal error detected" },
-  { regex: /panic:/i, message: "Panic detected" },
-  { regex: /FAILED/i, message: "Failure detected" },
+  { regex: /Error:/i, message: "检测到错误" },
+  { regex: /fatal:/i, message: "检测到致命错误" },
+  { regex: /panic:/i, message: "检测到 Panic" },
 ];
 
 function detectAiPattern(data, aiTool) {
@@ -82,54 +80,14 @@ function recordNotify(sessionId) {
 
 function broadcastNotification(sessionId, sessionName, aiTool, message) {
   const msg = { type: "notification", sessionId, sessionName, aiTool, message, time: Date.now() };
-  // Send to all lobby clients
   for (const client of lobbyClients) {
     sendCtrl(client, msg);
   }
-  // Send to all session clients (all sessions, not just the triggering one)
   for (const session of sessions.values()) {
     for (const client of session.clients) {
       sendCtrl(client, msg);
     }
   }
-}
-
-function resetIdleTimer(sessionId) {
-  const state = notifState.get(sessionId) || {};
-  if (state.idleTimer) clearTimeout(state.idleTimer);
-  state.idleTimer = null;
-  notifState.set(sessionId, state);
-}
-
-function startIdleTimer(sessionId, sessionName, aiTool) {
-  const state = notifState.get(sessionId) || {};
-  if (state.idleTimer) clearTimeout(state.idleTimer);
-  // Already sent idle notification — don't repeat until user reconnects
-  // or a pattern match resets the flag
-  if (state.idleSent) {
-    notifState.set(sessionId, state);
-    return;
-  }
-  // Only fire idle notification after substantial output
-  if ((state.outputBytes || 0) < 200) {
-    notifState.set(sessionId, state);
-    return;
-  }
-  state.idleTimer = setTimeout(() => {
-    if (canNotify(sessionId)) {
-      recordNotify(sessionId);
-      broadcastNotification(sessionId, sessionName, aiTool, "AI tool appears idle");
-      state.idleSent = true; // Don't repeat
-    }
-    state.outputBytes = 0;
-  }, IDLE_TIMEOUT_MS);
-  notifState.set(sessionId, state);
-}
-
-function trackOutput(sessionId, dataLen) {
-  const state = notifState.get(sessionId) || {};
-  state.outputBytes = (state.outputBytes || 0) + dataLen;
-  notifState.set(sessionId, state);
 }
 
 // --- Session Management ---
@@ -167,32 +125,23 @@ function createSession(name, shell = process.env.SHELL || "bash", cwd, aiTool) {
         }
       }
 
-      // AI notification detection — notify when user is NOT watching this session
-      if (session.aiTool) {
-        trackOutput(id, data.length);
-
-        if (session.clients.size === 0) {
-          resetIdleTimer(id);
-          const message = detectAiPattern(data, session.aiTool);
-          if (message) {
-            const st = notifState.get(id) || {};
-            // Only notify if this is a different message than last time
-            if (message !== st.lastPatternMsg && canNotify(id)) {
-              recordNotify(id);
-              st.lastPatternMsg = message;
-              st.idleSent = false; // New event, allow future idle notif
-              notifState.set(id, st);
-              broadcastNotification(id, session.name, session.aiTool, message);
-            }
-          } else {
-            startIdleTimer(id, session.name, session.aiTool);
+      // AI notification detection — only when user is NOT watching
+      if (session.aiTool && session.clients.size === 0) {
+        const message = detectAiPattern(data, session.aiTool);
+        if (message) {
+          const st = notifState.get(id) || {};
+          // Only notify if this is a different message than last time
+          if (message !== st.lastPatternMsg && canNotify(id)) {
+            recordNotify(id);
+            st.lastPatternMsg = message;
+            notifState.set(id, st);
+            broadcastNotification(id, session.name, session.aiTool, message);
           }
-        } else {
-          // User is watching — clear all notification state
-          resetIdleTimer(id);
-          const st = notifState.get(id);
-          if (st) { st.idleSent = false; st.outputBytes = 0; st.lastPatternMsg = null; }
         }
+      } else if (session.aiTool && session.clients.size > 0) {
+        // User is watching — reset so next leave can trigger fresh notifications
+        const st = notifState.get(id);
+        if (st) st.lastPatternMsg = null;
       }
     }
   });
@@ -200,8 +149,6 @@ function createSession(name, shell = process.env.SHELL || "bash", cwd, aiTool) {
   ptyProcess.onExit(({ exitCode }) => {
     const session = sessions.get(id);
     if (session) {
-      // Clean up idle timer
-      resetIdleTimer(id);
       notifState.delete(id);
 
       // Broadcast exit notification for AI sessions
