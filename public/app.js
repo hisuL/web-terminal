@@ -1549,12 +1549,27 @@
       showConfirmPopup("清空当前输入行？", () => sendRaw("\x15"));
     }, "util-btn"));
 
+    // 置顶/置底（所有 session 共用，非 tmux 时操作本地 scrollback）
+    if (!isTmuxSession()) {
+      shortcutFixedRow.appendChild(makeBtn("⤒", "滚动到顶部", () => {
+        if (terminal) terminal.scrollToTop();
+      }, "util-btn"));
+      shortcutFixedRow.appendChild(makeBtn("⤓", "滚动到底部", () => {
+        if (terminal) terminal.scrollToBottom();
+      }, "util-btn"));
+    }
+
     if (isTmuxSession()) {
       shortcutFixedRow.appendChild(makeDivider());
 
       // prefix+[ 进入 copy-mode
       shortcutFixedRow.appendChild(makeBtn("滚动", "进入 copy-mode (prefix+[)",
         () => sendTmuxCmd("["), "tmux-btn"));
+      // copy-mode 内置顶(g)/置底(G)
+      shortcutFixedRow.appendChild(makeBtn("⤒", "置顶 (copy-mode: g)",
+        () => sendRaw("g"), "tmux-btn"));
+      shortcutFixedRow.appendChild(makeBtn("⤓", "置底 (copy-mode: G)",
+        () => sendRaw("G"), "tmux-btn"));
       // prefix+PageUp 上翻页
       shortcutFixedRow.appendChild(makeBtn("PgUp", "上翻页 (prefix+PageUp)",
         () => sendTmuxCmd("\x1b[5~"), "tmux-btn"));
