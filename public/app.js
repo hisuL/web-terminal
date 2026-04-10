@@ -2500,6 +2500,9 @@
         parent: editorArea,
       });
 
+      // 同步终端字体大小到编辑器
+      editorArea.style.fontSize = currentFontSize + "px";
+
       editorView.focus();
     } catch (e) {
       alert("Failed to open file: " + e.message);
