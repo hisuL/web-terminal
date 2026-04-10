@@ -1,6 +1,24 @@
 (() => {
   const CTRL_PREFIX = "\x00";
 
+  // --- SVG Icon Library ---
+  const SVG = {
+    bell: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>',
+    edit: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>',
+    close: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    folder: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>',
+    folderOpen: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2v1"/><path d="M2 10h20l-2 9H4z"/></svg>',
+    file: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>',
+    lock: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>',
+    unlock: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg>',
+    soundOn: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 010 14.14"/><path d="M15.54 8.46a5 5 0 010 7.07"/></svg>',
+    soundOff: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>',
+    claude: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>',
+    codex: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+    dirFolder: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>',
+    refresh: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>',
+  };
+
   // State
   let sessions = [];
   let activeSessionId = null;
@@ -17,6 +35,20 @@
 
   // --- Color Themes ---
   const COLOR_THEMES = [
+    {
+      id: "cyber-hud", name: "Cyber HUD",
+      bg: "#080c14",
+      ui: { bgSidebar: "#0a0f18", bgHover: "#131a27", bgActive: "#1a2744", text: "#c8d6e5", textDim: "#4a5568", accent: "#22d3ee", danger: "#f85149", success: "#2ea043", border: "rgba(56,189,248,0.1)", warning: "#d29922" },
+      theme: {
+        background: "#080c14", foreground: "#c8d6e5", cursor: "#22d3ee",
+        selectionBackground: "#1a2744",
+        black: "#0a0f18", red: "#f85149", green: "#2ea043", yellow: "#d29922",
+        blue: "#22d3ee", magenta: "#bb9af7", cyan: "#38bdf8", white: "#c8d6e5",
+        brightBlack: "#4a5568", brightRed: "#ff6b63", brightGreen: "#3bba57",
+        brightYellow: "#e5ad30", brightBlue: "#56e0f5", brightMagenta: "#c7a9ff",
+        brightCyan: "#67d4f7", brightWhite: "#e2e8f0",
+      },
+    },
     {
       id: "vscode-dark", name: "VS Code Dark",
       bg: "#1e1e1e",
@@ -145,7 +177,7 @@
     },
   ];
 
-  let currentThemeId = localStorage.getItem("termTheme") || "vscode-dark";
+  let currentThemeId = localStorage.getItem("termTheme") || "cyber-hud";
 
   function getCurrentTheme() {
     return COLOR_THEMES.find((t) => t.id === currentThemeId) || COLOR_THEMES[0];
@@ -173,6 +205,7 @@
       root.setProperty("--danger", t.ui.danger);
       root.setProperty("--success", t.ui.success);
       root.setProperty("--border", t.ui.border);
+      root.setProperty("--warning", t.ui.warning || t.ui.accent);
     }
   }
 
@@ -271,15 +304,15 @@
       const div = document.createElement("div");
       const unread = hasSessionUnread(s.id);
       div.className = "session-item" + (s.id === activeSessionId ? " active" : "") + (unread ? " session-breathing" : "");
-      const bellHtml = unread ? '<span class="session-bell-icon bell-shaking">\u{1F514}</span>' : "";
+      const bellHtml = unread ? `<span class="session-bell-icon bell-shaking">${SVG.bell}</span>` : "";
       div.innerHTML = `
         <div class="session-info">
           <div class="session-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}${bellHtml}</div>
           <div class="session-meta">${formatTime(s.createdAt)} · ${s.clients} conn</div>
         </div>
         <div class="session-actions">
-          <button class="btn-icon" data-action="rename" data-id="${s.id}" title="Rename">&#9998;</button>
-          <button class="btn-icon danger" data-action="close" data-id="${s.id}" title="Close">&times;</button>
+          <button class="btn-icon" data-action="rename" data-id="${s.id}" title="Rename">${SVG.edit}</button>
+          <button class="btn-icon danger" data-action="close" data-id="${s.id}" title="Close">${SVG.close}</button>
         </div>
       `;
       div.addEventListener("click", (e) => {
@@ -474,7 +507,7 @@
     data.dirs.forEach((d) => {
       const item = document.createElement("div");
       item.className = "dir-item" + (d.hidden ? " hidden-dir" : "") + (wizard.selectedDir === d.path ? " selected" : "");
-      item.innerHTML = `<span class="dir-icon">📁</span><span class="dir-name">${escapeHtml(d.name)}</span><span style="color:var(--text-dim);font-size:12px">›</span>`;
+      item.innerHTML = `<span class="dir-icon">${SVG.dirFolder}</span><span class="dir-name">${escapeHtml(d.name)}</span><span style="color:var(--text-dim);font-size:12px">›</span>`;
 
       // 单击选中，双击进入
       let clickTimer = null;
@@ -586,7 +619,7 @@
     // Claude card
     const claudeCard = document.createElement("div");
     claudeCard.className = "ai-tool-card" + (wizard.aiTool === "claude" ? " selected" : "");
-    claudeCard.innerHTML = `<h4>🤖 Claude</h4><p>Anthropic Claude Code CLI，适合代码生成与分析</p>`;
+    claudeCard.innerHTML = `<h4>${SVG.claude} Claude</h4><p>Anthropic Claude Code CLI，适合代码生成与分析</p>`;
     claudeCard.addEventListener("click", () => {
       wizard.aiTool = wizard.aiTool === "claude" ? null : "claude";
       renderAiStep._refresh(wrap);
@@ -595,7 +628,7 @@
     // Codex card
     const codexCard = document.createElement("div");
     codexCard.className = "ai-tool-card" + (wizard.aiTool === "codex" ? " selected-codex" : "");
-    codexCard.innerHTML = `<h4>⚡ Codex</h4><p>OpenAI Codex CLI，适合快速命令行任务执行</p>`;
+    codexCard.innerHTML = `<h4>${SVG.codex} Codex</h4><p>OpenAI Codex CLI，适合快速命令行任务执行</p>`;
     codexCard.addEventListener("click", () => {
       wizard.aiTool = wizard.aiTool === "codex" ? null : "codex";
       renderAiStep._refresh(wrap);
@@ -1480,6 +1513,11 @@
     });
     shortcutFixedRow.appendChild(makeBtn("ESC", null, () => sendRaw("\x1b")));
 
+    // 清空输入框（Ctrl+U）—— 紧跟 ESC
+    shortcutFixedRow.appendChild(makeBtn("清空", "清空当前输入行（需确认）", () => {
+      showConfirmPopup("清空当前输入行？", () => sendRaw("\x15"));
+    }, "util-btn"));
+
     if (isTmuxSession()) {
       shortcutFixedRow.appendChild(makeDivider());
 
@@ -1580,18 +1618,6 @@
       }
     }
 
-    // --- 所有类型共用：清空输入 + 配色切换 ---
-    shortcutFixedRow.appendChild(makeDivider());
-
-    // 清空输入框（Ctrl+U）—— 需确认防误触
-    shortcutFixedRow.appendChild(makeBtn("清空", "清空当前输入行（需确认）", () => {
-      showConfirmPopup("清空当前输入行？", () => sendRaw("\x15"));
-    }, "util-btn"));
-
-    // 配色切换
-    shortcutFixedRow.appendChild(makeBtn("🎨", "切换配色方案", () => {
-      showThemePicker();
-    }, "util-btn"));
   }
 
   // --- 确认弹窗（防误触）---
@@ -1648,7 +1674,7 @@
     const closeRow = document.createElement("div");
     closeRow.style.cssText = "text-align:right;padding:4px 6px 2px";
     const closeBtn = document.createElement("button");
-    closeBtn.textContent = "✕";
+    closeBtn.innerHTML = SVG.close;
     closeBtn.style.cssText = "background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;padding:2px 6px";
     closeBtn.addEventListener("click", () => picker.remove());
     closeRow.appendChild(closeBtn);
@@ -1763,6 +1789,11 @@
   shortcutToggleBtn.addEventListener("click", toggleShortcutBar);
   shortcutRefreshBtn.addEventListener("click", fetchShortcutSuggestions);
 
+  // --- Theme toggle in toolbar ---
+  document.getElementById("theme-toggle-btn").addEventListener("click", () => {
+    showThemePicker();
+  });
+
   // --- Notification System ---
   const MAX_NOTIFICATIONS = 50;
   const notifications = [];
@@ -1783,11 +1814,11 @@
 
   function updateSoundToggleBtn() {
     if (notifSoundEnabled) {
-      notifSoundToggle.innerHTML = "&#128264;"; // speaker
+      notifSoundToggle.innerHTML = SVG.soundOn;
       notifSoundToggle.classList.remove("muted");
       notifSoundToggle.title = "Sound on (click to mute)";
     } else {
-      notifSoundToggle.innerHTML = "&#128263;"; // muted speaker
+      notifSoundToggle.innerHTML = SVG.soundOff;
       notifSoundToggle.classList.add("muted");
       notifSoundToggle.title = "Sound off (click to unmute)";
     }
@@ -1921,9 +1952,9 @@
     notifications.forEach((n) => {
       const item = document.createElement("div");
       item.className = "notif-item" + (n.read ? "" : " unread");
-      const icon = n.aiTool === "claude" ? "\u{1F916}" : n.aiTool === "codex" ? "\u26A1" : "\u{1F514}";
+      const notifIcon = n.aiTool === "claude" ? SVG.claude : n.aiTool === "codex" ? SVG.codex : SVG.bell;
       item.innerHTML = `
-        <span class="notif-item-icon">${icon}</span>
+        <span class="notif-item-icon">${notifIcon}</span>
         <div class="notif-item-body">
           <div class="notif-item-session">${escapeHtml(n.sessionName)}</div>
           <div class="notif-item-msg">${escapeHtml(n.message)}</div>
@@ -2120,7 +2151,8 @@
 
     const icon = document.createElement("span");
     icon.className = "ft-icon";
-    icon.textContent = entry.type === "directory" ? "\u{1F4C1}" : "\u{1F4C4}";
+    icon.innerHTML = entry.type === "directory" ? SVG.folder : SVG.file;
+    icon.classList.add(entry.type === "directory" ? "folder-icon" : "file-icon");
 
     const name = document.createElement("span");
     name.className = "ft-name";
@@ -2168,10 +2200,10 @@
           } catch {
             children.innerHTML = '<div class="ft-empty">Failed to load</div>';
           }
-          icon.textContent = "\u{1F4C2}"; // open folder
+          icon.innerHTML = SVG.folderOpen; // open folder
         } else {
           const isOpen = children.classList.toggle("open");
-          icon.textContent = isOpen ? "\u{1F4C2}" : "\u{1F4C1}";
+          icon.innerHTML = isOpen ? SVG.folderOpen : SVG.folder;
         }
       });
     } else {
@@ -2414,20 +2446,20 @@
 
   function updateSaveStatus(status, msg) {
     editorSaveStatus.className = status;
-    if (status === "saved") editorSaveStatus.textContent = "\u2713 Saved";
-    else if (status === "saving") editorSaveStatus.textContent = "Saving...";
-    else if (status === "unsaved") editorSaveStatus.textContent = "\u25CF Unsaved";
-    else if (status === "error") editorSaveStatus.textContent = "\u2717 " + (msg || "Error");
-    else if (status === "readonly") editorSaveStatus.textContent = "\uD83D\uDD12 只读";
+    if (status === "saved") editorSaveStatus.innerHTML = `<span style="color:var(--success)">●</span> Saved`;
+    else if (status === "saving") editorSaveStatus.innerHTML = `<span style="color:var(--text-dim)">●</span> Saving...`;
+    else if (status === "unsaved") editorSaveStatus.innerHTML = `<span style="color:var(--warning)">●</span> Unsaved`;
+    else if (status === "error") editorSaveStatus.innerHTML = `<span style="color:var(--danger)">●</span> ${msg || "Error"}`;
+    else if (status === "readonly") editorSaveStatus.innerHTML = `${SVG.lock} 只读`;
   }
 
   function updateEditorEditBtn() {
     if (editorReadOnly) {
-      editorEditBtn.innerHTML = "&#9998; 编辑";
+      editorEditBtn.innerHTML = `${SVG.unlock} 编辑`;
       editorEditBtn.classList.remove("editing");
       editorEditBtn.title = "点击开启编辑";
     } else {
-      editorEditBtn.innerHTML = "&#128274; 只读";
+      editorEditBtn.innerHTML = `${SVG.lock} 只读`;
       editorEditBtn.classList.add("editing");
       editorEditBtn.title = "点击切换为只读";
     }
