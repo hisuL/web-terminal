@@ -18,8 +18,23 @@
   // --- Color Themes ---
   const COLOR_THEMES = [
     {
+      id: "vscode-dark", name: "VS Code Dark",
+      bg: "#1e1e1e",
+      ui: { bgSidebar: "#252526", bgHover: "#2a2d2e", bgActive: "#094771", text: "#d4d4d4", textDim: "#858585", accent: "#569cd6", danger: "#f44747", success: "#6a9955", border: "#3c3c3c" },
+      theme: {
+        background: "#1e1e1e", foreground: "#d4d4d4", cursor: "#aeafad",
+        selectionBackground: "#264f78",
+        black: "#1e1e1e", red: "#f44747", green: "#6a9955", yellow: "#dcdcaa",
+        blue: "#569cd6", magenta: "#c586c0", cyan: "#4ec9b0", white: "#d4d4d4",
+        brightBlack: "#808080", brightRed: "#f44747", brightGreen: "#b5cea8",
+        brightYellow: "#dcdcaa", brightBlue: "#9cdcfe", brightMagenta: "#c586c0",
+        brightCyan: "#4ec9b0", brightWhite: "#e5e5e5",
+      },
+    },
+    {
       id: "tokyo-night", name: "Tokyo Night",
       bg: "#1a1b26",
+      ui: { bgSidebar: "#16161e", bgHover: "#292e42", bgActive: "#33467c", text: "#c0caf5", textDim: "#565f89", accent: "#7aa2f7", danger: "#f7768e", success: "#9ece6a", border: "#292e42" },
       theme: {
         background: "#1a1b26", foreground: "#c0caf5", cursor: "#c0caf5",
         selectionBackground: "#283457",
@@ -33,6 +48,7 @@
     {
       id: "dracula", name: "Dracula",
       bg: "#282A36",
+      ui: { bgSidebar: "#21222C", bgHover: "#44475A", bgActive: "#6272A4", text: "#F8F8F2", textDim: "#6272A4", accent: "#BD93F9", danger: "#FF5555", success: "#50FA7B", border: "#44475A" },
       theme: {
         background: "#282A36", foreground: "#F8F8F2", cursor: "#F8F8F2",
         selectionBackground: "#44475A",
@@ -46,6 +62,7 @@
     {
       id: "gruvbox", name: "Gruvbox",
       bg: "#282828",
+      ui: { bgSidebar: "#1d2021", bgHover: "#3C3836", bgActive: "#504945", text: "#EBDBB2", textDim: "#928374", accent: "#458588", danger: "#CC241D", success: "#98971A", border: "#3C3836" },
       theme: {
         background: "#282828", foreground: "#EBDBB2", cursor: "#EBDBB2",
         selectionBackground: "#3C3836",
@@ -59,6 +76,7 @@
     {
       id: "nord", name: "Nord",
       bg: "#2E3440",
+      ui: { bgSidebar: "#2E3440", bgHover: "#3B4252", bgActive: "#434C5E", text: "#D8DEE9", textDim: "#4C566A", accent: "#81A1C1", danger: "#BF616A", success: "#A3BE8C", border: "#3B4252" },
       theme: {
         background: "#2E3440", foreground: "#D8DEE9", cursor: "#D8DEE9",
         selectionBackground: "#434C5E",
@@ -72,6 +90,7 @@
     {
       id: "one-dark", name: "One Dark",
       bg: "#282C34",
+      ui: { bgSidebar: "#21252B", bgHover: "#2c313a", bgActive: "#3E4451", text: "#ABB2BF", textDim: "#5C6370", accent: "#61AFEF", danger: "#E06C75", success: "#98C379", border: "#3E4451" },
       theme: {
         background: "#282C34", foreground: "#ABB2BF", cursor: "#528BFF",
         selectionBackground: "#3E4451",
@@ -85,6 +104,7 @@
     {
       id: "catppuccin", name: "Catppuccin",
       bg: "#1E1E2E",
+      ui: { bgSidebar: "#181825", bgHover: "#313244", bgActive: "#45475A", text: "#CDD6F4", textDim: "#585B70", accent: "#89B4FA", danger: "#F38BA8", success: "#A6E3A1", border: "#313244" },
       theme: {
         background: "#1E1E2E", foreground: "#CDD6F4", cursor: "#F5E0DC",
         selectionBackground: "#45475A",
@@ -98,6 +118,7 @@
     {
       id: "solarized", name: "Solarized",
       bg: "#002B36",
+      ui: { bgSidebar: "#073642", bgHover: "#073642", bgActive: "#586E75", text: "#839496", textDim: "#586E75", accent: "#268BD2", danger: "#DC322F", success: "#859900", border: "#073642" },
       theme: {
         background: "#002B36", foreground: "#839496", cursor: "#839496",
         selectionBackground: "#073642",
@@ -111,6 +132,7 @@
     {
       id: "monokai", name: "Monokai",
       bg: "#272822",
+      ui: { bgSidebar: "#1e1f1c", bgHover: "#3E3D32", bgActive: "#49483E", text: "#F8F8F2", textDim: "#75715E", accent: "#66D9EF", danger: "#F92672", success: "#A6E22E", border: "#3E3D32" },
       theme: {
         background: "#272822", foreground: "#F8F8F2", cursor: "#F8F8F0",
         selectionBackground: "#49483E",
@@ -123,7 +145,7 @@
     },
   ];
 
-  let currentThemeId = localStorage.getItem("termTheme") || "tokyo-night";
+  let currentThemeId = localStorage.getItem("termTheme") || "vscode-dark";
 
   function getCurrentTheme() {
     return COLOR_THEMES.find((t) => t.id === currentThemeId) || COLOR_THEMES[0];
@@ -138,8 +160,20 @@
     // 更新 select overlay 背景
     const overlay = document.getElementById("select-overlay");
     if (overlay) overlay.style.background = t.theme.background;
-    // 更新 CSS 变量（让 toolbar/sidebar 背景跟主题走）
-    document.documentElement.style.setProperty("--bg", t.theme.background);
+    // 更新所有 CSS 变量
+    const root = document.documentElement.style;
+    root.setProperty("--bg", t.theme.background);
+    if (t.ui) {
+      root.setProperty("--bg-sidebar", t.ui.bgSidebar);
+      root.setProperty("--bg-hover", t.ui.bgHover);
+      root.setProperty("--bg-active", t.ui.bgActive);
+      root.setProperty("--text", t.ui.text);
+      root.setProperty("--text-dim", t.ui.textDim);
+      root.setProperty("--accent", t.ui.accent);
+      root.setProperty("--danger", t.ui.danger);
+      root.setProperty("--success", t.ui.success);
+      root.setProperty("--border", t.ui.border);
+    }
   }
 
   // --- Visual Viewport: 键盘弹出时整体收缩，避免快捷键栏被遮住 ---
@@ -405,7 +439,7 @@
     if (data.parent !== null) {
       const upBtn = document.createElement("button");
       upBtn.title = "上级目录";
-      upBtn.textContent = "↑";
+      upBtn.textContent = "← 返回";
       upBtn.addEventListener("click", () => loadDirBrowser(wrap, data.parent));
       pathBar.appendChild(upBtn);
     }
@@ -447,6 +481,19 @@
           wizard.selectedDir = wizard.selectedDir === d.path ? null : d.path;
           wrap.querySelectorAll(".dir-item").forEach((el) => el.classList.remove("selected"));
           if (wizard.selectedDir) item.classList.add("selected");
+          // 同步更新"使用当前目录"按钮状态
+          const curBtn = wrap.querySelector(".btn-secondary");
+          if (curBtn) {
+            if (wizard.selectedDir) {
+              curBtn.textContent = "\u2713 \u5DF2\u9009\uFF1A" + wizard.selectedDir.split("/").pop();
+              curBtn.style.borderColor = "var(--accent)";
+              curBtn.style.color = "var(--accent)";
+            } else {
+              curBtn.textContent = "\u2713 \u4F7F\u7528\u5F53\u524D\u76EE\u5F55";
+              curBtn.style.borderColor = "";
+              curBtn.style.color = "";
+            }
+          }
         }, 220);
       });
       list.appendChild(item);
@@ -604,7 +651,6 @@
       cb.checked = !!wizard.aiOpts.claude[key];
       cb.addEventListener("change", () => { wizard.aiOpts.claude[key] = cb.checked; });
       const labelEl = document.createElement("label");
-      labelEl.htmlFor = cb.id;
       labelEl.innerHTML = `${escapeHtml(lbl)}<span>${escapeHtml(desc)}</span>`;
       row.appendChild(cb);
       row.appendChild(labelEl);
@@ -648,7 +694,6 @@
       cb.checked = !!wizard.aiOpts.codex[key];
       cb.addEventListener("change", () => { wizard.aiOpts.codex[key] = cb.checked; });
       const labelEl = document.createElement("label");
-      labelEl.htmlFor = cb.id;
       labelEl.innerHTML = `${escapeHtml(lbl)}<span>${escapeHtml(desc)}</span>`;
       row.appendChild(cb);
       row.appendChild(labelEl);

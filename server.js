@@ -23,7 +23,7 @@ function sendCtrl(ws, obj) {
 
 // --- AI Notification Detection ---
 const NOTIF_DEBOUNCE_MS = 5000;
-const IDLE_TIMEOUT_MS = 3000;
+const IDLE_TIMEOUT_MS = 10000;
 
 // Per-session notification state (keyed by session id)
 const notifState = new Map(); // { lastNotifTime, idleTimer }
@@ -162,8 +162,8 @@ function createSession(name, shell = process.env.SHELL || "bash", cwd, aiTool) {
         }
       }
 
-      // AI notification detection
-      if (session.aiTool) {
+      // AI notification detection — skip if someone is actively watching this session
+      if (session.aiTool && session.clients.size === 0) {
         trackOutput(id, data.length);
         resetIdleTimer(id);
 
@@ -175,6 +175,9 @@ function createSession(name, shell = process.env.SHELL || "bash", cwd, aiTool) {
           // No pattern or debounced — start idle timer
           startIdleTimer(id, session.name, session.aiTool);
         }
+      } else if (session.aiTool && session.clients.size > 0) {
+        // User is watching — clear any pending idle timer
+        resetIdleTimer(id);
       }
     }
   });
