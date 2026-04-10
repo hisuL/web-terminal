@@ -1743,8 +1743,15 @@
     closeRow.appendChild(closeBtn);
     picker.insertBefore(closeRow, picker.firstChild);
 
-    // 挂到 toolbar 下方
-    document.getElementById("toolbar").appendChild(picker);
+    // 挂到 body，绝对定位在 toolbar 下方
+    const toolbar = document.getElementById("toolbar");
+    const rect = toolbar.getBoundingClientRect();
+    picker.style.position = "fixed";
+    picker.style.top = rect.bottom + "px";
+    picker.style.left = "0";
+    picker.style.right = "0";
+    picker.style.zIndex = "200";
+    document.body.appendChild(picker);
 
     // 点击外部关闭
     setTimeout(() => {
