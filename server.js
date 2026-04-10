@@ -104,10 +104,14 @@ function resetIdleTimer(sessionId) {
 function startIdleTimer(sessionId, sessionName, aiTool) {
   const state = notifState.get(sessionId) || {};
   if (state.idleTimer) clearTimeout(state.idleTimer);
-  // Track output volume — only fire idle notification after substantial output
-  state.outputBytes = (state.outputBytes || 0);
-  if (state.outputBytes < 200) {
-    // Not enough output to consider idle meaningful (e.g. just initial prompt)
+  // Already sent idle notification — don't repeat until user reconnects
+  // or a pattern match resets the flag
+  if (state.idleSent) {
+    notifState.set(sessionId, state);
+    return;
+  }
+  // Only fire idle notification after substantial output
+  if ((state.outputBytes || 0) < 200) {
     notifState.set(sessionId, state);
     return;
   }
@@ -115,6 +119,7 @@ function startIdleTimer(sessionId, sessionName, aiTool) {
     if (canNotify(sessionId)) {
       recordNotify(sessionId);
       broadcastNotification(sessionId, sessionName, aiTool, "AI tool appears idle");
+      state.idleSent = true; // Don't repeat
     }
     state.outputBytes = 0;
   }, IDLE_TIMEOUT_MS);
@@ -171,13 +176,18 @@ function createSession(name, shell = process.env.SHELL || "bash", cwd, aiTool) {
           const message = detectAiPattern(data, session.aiTool);
           if (message && canNotify(id)) {
             recordNotify(id);
+            // Reset idle flag — new meaningful event, allow future idle notif
+            const st = notifState.get(id);
+            if (st) st.idleSent = false;
             broadcastNotification(id, session.name, session.aiTool, message);
           } else {
             startIdleTimer(id, session.name, session.aiTool);
           }
         } else {
-          // User is watching — clear any pending idle timer
+          // User is watching — clear idle timer and reset idle flag
           resetIdleTimer(id);
+          const st = notifState.get(id);
+          if (st) { st.idleSent = false; st.outputBytes = 0; }
         }
       }
     }
