@@ -1382,13 +1382,14 @@
   document.getElementById("font-inc").addEventListener("click", () => changeFontSize(2));
   document.getElementById("font-dec").addEventListener("click", () => changeFontSize(-2));
 
-  // --- 会话名展开/截断切换 ---
+  // --- 会话名展开/截断切换（在 Sessions 面板中）---
   const nameExpandBtn = document.getElementById("name-expand-btn");
   let namesExpanded = false;
   nameExpandBtn.addEventListener("click", () => {
     namesExpanded = !namesExpanded;
     appEl.classList.toggle("names-expanded", namesExpanded);
     nameExpandBtn.classList.toggle("active", namesExpanded);
+    nameExpandBtn.textContent = namesExpanded ? "截断名称" : "展开名称";
   });
 
   document.addEventListener("keydown", (e) => {

@@ -512,6 +512,34 @@ html, body {
   height: 16px;
 }
 
+/* Session panel actions */
+#session-panel-actions {
+  display: flex;
+  flex-direction: column;
+}
+
+.session-panel-btn {
+  margin: 0 8px 4px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  text-align: center;
+  transition: all 0.15s;
+}
+.session-panel-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.session-panel-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 /* New Session — primary CTA with glow */
 #new-session-btn {
   margin: 8px;
@@ -582,13 +610,22 @@ html, body {
 }
 
 #toolbar {
-  height: 40px;
   background: var(--bg-sidebar);
   border-bottom: 1px solid var(--border);
   display: flex;
+  flex-direction: column;
+}
+
+#toolbar-row1 {
+  display: flex;
   align-items: center;
   padding: 0 8px;
+  height: 36px;
   gap: 6px;
+}
+
+#toolbar-title-row {
+  padding: 0 10px 4px;
 }
 
 #menu-toggle {
@@ -601,39 +638,14 @@ html, body {
   padding: 4px 8px;
 }
 
-/* Toolbar title — light weight HUD style */
+/* Toolbar title — full width, no truncation */
 #toolbar-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 300;
   letter-spacing: 0.03em;
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   color: var(--text);
-}
-
-.names-expanded #toolbar {
-  height: auto;
-  min-height: 40px;
-  flex-wrap: nowrap;
-  align-items: center;
-  padding: 4px 8px;
-}
-
-.names-expanded #toolbar-title {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: unset;
   word-break: break-all;
-  min-width: 0;
-  flex: 1;
-  font-size: 13px;
   line-height: 1.3;
-}
-
-#name-expand-btn.active {
-  color: var(--accent);
 }
 
 #toolbar-actions {
@@ -642,6 +654,7 @@ html, body {
   gap: 2px;
   flex-shrink: 0;
   position: relative;
+  margin-left: auto;
 }
 
 /* Toolbar divider — separates button groups */
