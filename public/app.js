@@ -1565,11 +1565,11 @@
       // prefix+[ 进入 copy-mode
       shortcutFixedRow.appendChild(makeBtn("滚动", "进入 copy-mode (prefix+[)",
         () => sendTmuxCmd("["), "tmux-btn"));
-      // copy-mode 内置顶(g)/置底(G)
-      shortcutFixedRow.appendChild(makeBtn("⤒", "置顶 (copy-mode: g)",
-        () => sendRaw("g"), "tmux-btn"));
-      shortcutFixedRow.appendChild(makeBtn("⤓", "置底 (copy-mode: G)",
-        () => sendRaw("G"), "tmux-btn"));
+      // copy-mode 内置顶/置底（发送 Home/End 键，兼容 emacs 和 vi 模式）
+      shortcutFixedRow.appendChild(makeBtn("⤒", "置顶 (copy-mode: Home)",
+        () => sendRaw("\x1b[1~"), "tmux-btn"));
+      shortcutFixedRow.appendChild(makeBtn("⤓", "置底 (copy-mode: End)",
+        () => sendRaw("\x1b[4~"), "tmux-btn"));
       // prefix+PageUp 上翻页
       shortcutFixedRow.appendChild(makeBtn("PgUp", "上翻页 (prefix+PageUp)",
         () => sendTmuxCmd("\x1b[5~"), "tmux-btn"));
