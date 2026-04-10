@@ -1460,10 +1460,10 @@
     if (terminal) terminal.focus();
   }
 
-  // tmux: prefix(Ctrl+B) 和命令字符分两次发，中间留 60ms
+  // tmux: prefix(Ctrl+B) 和命令字符分两次发，中间留 100ms（移动端延迟较大）
   function sendTmuxCmd(cmdChar) {
     sendRaw("\x02");
-    setTimeout(() => sendRaw(cmdChar), 60);
+    setTimeout(() => sendRaw(cmdChar), 100);
   }
 
   function makeBtn(label, desc, handler, extraClass) {
@@ -1474,20 +1474,27 @@
       (desc ? `<span class="key-desc">${escapeHtml(desc)}</span>` : "");
 
     // 移动端：区分点击和滑动，滑动超过 6px 不触发
+    // 用 handledByTouch 标记防止 touchend + click 双重触发
     let touchStartX = 0, touchStartY = 0;
+    let handledByTouch = false;
     btn.addEventListener("touchstart", (e) => {
       touchStartX = e.touches[0].clientX;
       touchStartY = e.touches[0].clientY;
+      handledByTouch = false;
     }, { passive: true });
     btn.addEventListener("touchend", (e) => {
       const dx = e.changedTouches[0].clientX - touchStartX;
       const dy = e.changedTouches[0].clientY - touchStartY;
       if (Math.abs(dx) > 6 || Math.abs(dy) > 6) return; // 是滑动，忽略
       e.preventDefault();
+      handledByTouch = true;
       handler();
     });
 
-    btn.addEventListener("click", handler);
+    btn.addEventListener("click", (e) => {
+      if (handledByTouch) { handledByTouch = false; return; }
+      handler();
+    });
     return btn;
   }
 
