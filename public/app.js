@@ -2081,8 +2081,7 @@
   }
 
   function updateFileTreeBackBtn() {
-    const cwd = sessionCwds.get(activeSessionId);
-    fileTreeBackBtn.disabled = !fileTreeRoot || !cwd || fileTreeRoot === cwd;
+    fileTreeBackBtn.disabled = !fileTreeRoot || fileTreeRoot === "/";
   }
 
   fileTreeBackBtn.addEventListener("click", () => {
