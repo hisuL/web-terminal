@@ -2418,18 +2418,18 @@
     else if (status === "saving") editorSaveStatus.textContent = "Saving...";
     else if (status === "unsaved") editorSaveStatus.textContent = "\u25CF Unsaved";
     else if (status === "error") editorSaveStatus.textContent = "\u2717 " + (msg || "Error");
-    else if (status === "readonly") editorSaveStatus.textContent = "\uD83D\uDD12 Read-Only";
+    else if (status === "readonly") editorSaveStatus.textContent = "\uD83D\uDD12 只读";
   }
 
   function updateEditorEditBtn() {
     if (editorReadOnly) {
-      editorEditBtn.innerHTML = "&#9998; Read-Only";
+      editorEditBtn.innerHTML = "&#9998; 编辑";
       editorEditBtn.classList.remove("editing");
-      editorEditBtn.title = "Click to enable editing";
+      editorEditBtn.title = "点击开启编辑";
     } else {
-      editorEditBtn.innerHTML = "&#9998; Editing";
+      editorEditBtn.innerHTML = "&#128274; 只读";
       editorEditBtn.classList.add("editing");
-      editorEditBtn.title = "Click to switch to read-only";
+      editorEditBtn.title = "点击切换为只读";
     }
   }
 

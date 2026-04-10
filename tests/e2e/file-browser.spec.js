@@ -15,10 +15,18 @@ async function setupSession(page) {
   await expect(page.locator("#file-tree .ft-item").first()).toBeVisible({ timeout: 5000 });
 }
 
-test("back button is disabled at session cwd root", async ({ page }) => {
+test("back button is enabled and can navigate to parent", async ({ page }) => {
   await setupSession(page);
   const backBtn = page.locator("#file-tree-back-btn");
-  await expect(backBtn).toBeDisabled();
+  const pathDisplay = page.locator("#file-tree-path");
+  const initialPath = await pathDisplay.textContent();
+
+  // Back button should be enabled (not at filesystem root)
+  await expect(backBtn).toBeEnabled();
+
+  // Click back to go to parent
+  await backBtn.click();
+  await expect(pathDisplay).not.toHaveText(initialPath, { timeout: 3000 });
 });
 
 test("double-click folder changes file tree root", async ({ page }) => {
@@ -50,6 +58,5 @@ test("back button navigates to parent after drill-down", async ({ page }) => {
     await expect(backBtn).toBeEnabled();
     await backBtn.click();
     await expect(pathDisplay).toHaveText(initialPath, { timeout: 3000 });
-    await expect(backBtn).toBeDisabled();
   }
 });

@@ -41,24 +41,27 @@ async function openFileInEditor(page) {
 
 test("file opens in read-only mode by default", async ({ page }) => {
   await openFileInEditor(page);
-  await expect(page.locator("#editor-save-status")).toContainText("Read-Only");
-  await expect(page.locator("#editor-edit-btn")).toContainText("Read-Only");
+  await expect(page.locator("#editor-save-status")).toContainText("只读");
+  await expect(page.locator("#editor-edit-btn")).toContainText("编辑");
   await expect(page.locator(".cm-editor")).toBeVisible();
 });
 
 test("edit button toggles to edit mode", async ({ page }) => {
   await openFileInEditor(page);
   await page.click("#editor-edit-btn");
-  await expect(page.locator("#editor-edit-btn")).toContainText("Editing");
+  // After clicking, button should now show "只读" (the action to switch back)
+  await expect(page.locator("#editor-edit-btn")).toContainText("只读");
   await expect(page.locator("#editor-edit-btn")).toHaveClass(/editing/);
-  await expect(page.locator("#editor-save-status")).not.toContainText("Read-Only");
+  // Save status should no longer show 只读
+  await expect(page.locator("#editor-save-status")).not.toContainText("只读");
 });
 
 test("toggling back to read-only works", async ({ page }) => {
   await openFileInEditor(page);
   await page.click("#editor-edit-btn");
-  await expect(page.locator("#editor-edit-btn")).toContainText("Editing");
+  await expect(page.locator("#editor-edit-btn")).toContainText("只读");
   await page.click("#editor-edit-btn");
-  await expect(page.locator("#editor-edit-btn")).toContainText("Read-Only");
-  await expect(page.locator("#editor-save-status")).toContainText("Read-Only");
+  // Back to read-only: button shows "编辑", status shows "只读"
+  await expect(page.locator("#editor-edit-btn")).toContainText("编辑");
+  await expect(page.locator("#editor-save-status")).toContainText("只读");
 });
