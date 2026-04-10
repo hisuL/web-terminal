@@ -614,18 +614,25 @@ html, body {
   flex-direction: row;
 }
 
-/* Menu toggle — stretches full toolbar height */
+/* Menu toggle — stretches full toolbar height, icon scales to fill */
 #menu-toggle {
   display: none;
   background: none;
   border: none;
   border-right: 1px solid var(--border);
   color: var(--text);
-  font-size: 20px;
   cursor: pointer;
-  padding: 0 10px;
+  padding: 0 12px;
   flex-shrink: 0;
   align-self: stretch;
+  align-items: center;
+  justify-content: center;
+}
+#menu-toggle svg {
+  width: 60%;
+  height: 60%;
+  min-width: 18px;
+  min-height: 18px;
 }
 
 /* Content area: icons row + title row stacked */
