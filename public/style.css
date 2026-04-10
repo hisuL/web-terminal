@@ -886,6 +886,31 @@ html, body {
   #terminal-container {
     padding: 2px;
   }
+
+  /* Editor mobile */
+  #editor-toolbar {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px 6px;
+  }
+  #editor-filename {
+    font-size: 12px;
+    max-width: 40vw;
+  }
+  #editor-lang {
+    font-size: 9px;
+    padding: 1px 6px;
+  }
+  #editor-position {
+    font-size: 10px;
+  }
+  #editor-save-status {
+    font-size: 10px;
+  }
+  #editor-edit-btn {
+    font-size: 10px;
+    padding: 2px 6px;
+  }
 }
 
 /* ============================================

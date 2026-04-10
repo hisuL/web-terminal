@@ -2474,6 +2474,9 @@
       terminalContainer.style.display = "none";
       editorContainer.style.display = "flex";
 
+      // 手机端：自动收起侧边栏
+      if (isMobile() && sidebarOpen) toggleSidebar(false);
+
       const langExt = mod.getLangExtension(fileName);
       const updateListener = mod.EditorView.updateListener.of((update) => {
         if (update.docChanged && !editorReadOnly) {
