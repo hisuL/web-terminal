@@ -1389,7 +1389,7 @@
     namesExpanded = !namesExpanded;
     appEl.classList.toggle("names-expanded", namesExpanded);
     nameExpandBtn.classList.toggle("active", namesExpanded);
-    nameExpandBtn.textContent = namesExpanded ? "截断名称" : "展开名称";
+    nameExpandBtn.textContent = namesExpanded ? "收起" : "展开";
   });
 
   document.addEventListener("keydown", (e) => {

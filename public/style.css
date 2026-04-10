@@ -512,32 +512,25 @@ html, body {
   height: 16px;
 }
 
-/* Session panel actions */
-#session-panel-actions {
-  display: flex;
-  flex-direction: column;
-}
-
-.session-panel-btn {
-  margin: 0 8px 4px;
-  padding: 6px 10px;
-  background: transparent;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  cursor: pointer;
-  font-size: 12px;
-  font-family: var(--font-mono);
+/* Session list footer — expand/collapse toggle */
+#session-list-footer {
   text-align: center;
-  transition: all 0.15s;
+  padding: 2px 8px;
 }
-.session-panel-btn:hover {
-  color: var(--text);
-  border-color: var(--accent);
+#name-expand-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 8px;
+  transition: color 0.15s;
 }
-.session-panel-btn.active {
+#name-expand-btn:hover {
   color: var(--accent);
-  border-color: var(--accent);
+}
+#name-expand-btn.active {
+  color: var(--accent);
 }
 
 /* New Session — primary CTA with glow */
@@ -620,12 +613,11 @@ html, body {
   display: flex;
   align-items: center;
   padding: 0 8px;
-  height: 36px;
-  gap: 6px;
+  height: 32px;
 }
 
 #toolbar-title-row {
-  padding: 0 10px 4px;
+  padding: 0 10px 3px;
 }
 
 #menu-toggle {
@@ -652,9 +644,9 @@ html, body {
   display: flex;
   align-items: center;
   gap: 2px;
-  flex-shrink: 0;
+  flex: 1;
+  justify-content: flex-end;
   position: relative;
-  margin-left: auto;
 }
 
 /* Toolbar divider — separates button groups */
