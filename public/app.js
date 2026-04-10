@@ -1097,16 +1097,33 @@
       }
 
       if (!scrolling || e.touches.length !== 1 || !terminal) return;
-
-      // tmux 会话：不手动调用 scrollLines，让 xterm 原生将触摸事件
-      // 转为鼠标滚轮事件发给 tmux 处理，避免双重滚动导致内容错乱
-      if (isTmuxSession()) return;
-
       e.preventDefault(); // 阻止页面滚动，我们自己处理
 
       const y = e.touches[0].clientY;
       const dt = e.timeStamp - lastTime || 1;
-      const dy = y - lastY;   // 手指向下 dy>0 → 内容向下 → xterm scrollLines(-n)
+      const dy = y - lastY;   // 手指向下 dy>0 → 内容向下
+
+      // tmux 会话：发送上/下方向键给 tmux，而非操作本地 scrollback。
+      // tmux 在普通模式下方向键可以滚动历史（如果 set -g mouse on），
+      // 这里用最兼容的方式：发送 legacy mouse wheel escape sequences。
+      // Button 64 = wheel up, 65 = wheel down; col/row 用 33(=1) 编码
+      if (isTmuxSession()) {
+        accum += dy;
+        const lineH = LINE_HEIGHT();
+        const lines = Math.trunc(accum / lineH);
+        if (lines !== 0) {
+          accum -= lines * lineH;
+          const count = Math.abs(lines);
+          // Legacy mouse encoding: \x1b[M + (button+32) + (col+32) + (row+32)
+          // Wheel up = button 64, wheel down = button 65
+          const btn = lines > 0 ? 64 : 65; // dy>0 手指下滑 → scroll up(64)
+          const seq = "\x1b[M" + String.fromCharCode(btn + 32) + String.fromCharCode(33) + String.fromCharCode(33);
+          for (let i = 0; i < count; i++) sendRaw(seq);
+        }
+        lastY = y;
+        lastTime = e.timeStamp;
+        return;
+      }
 
       // 指数平滑速度（px/ms）
       const instantV = dy / dt;
