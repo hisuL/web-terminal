@@ -174,20 +174,24 @@ function createSession(name, shell = process.env.SHELL || "bash", cwd, aiTool) {
         if (session.clients.size === 0) {
           resetIdleTimer(id);
           const message = detectAiPattern(data, session.aiTool);
-          if (message && canNotify(id)) {
-            recordNotify(id);
-            // Reset idle flag — new meaningful event, allow future idle notif
-            const st = notifState.get(id);
-            if (st) st.idleSent = false;
-            broadcastNotification(id, session.name, session.aiTool, message);
+          if (message) {
+            const st = notifState.get(id) || {};
+            // Only notify if this is a different message than last time
+            if (message !== st.lastPatternMsg && canNotify(id)) {
+              recordNotify(id);
+              st.lastPatternMsg = message;
+              st.idleSent = false; // New event, allow future idle notif
+              notifState.set(id, st);
+              broadcastNotification(id, session.name, session.aiTool, message);
+            }
           } else {
             startIdleTimer(id, session.name, session.aiTool);
           }
         } else {
-          // User is watching — clear idle timer and reset idle flag
+          // User is watching — clear all notification state
           resetIdleTimer(id);
           const st = notifState.get(id);
-          if (st) { st.idleSent = false; st.outputBytes = 0; }
+          if (st) { st.idleSent = false; st.outputBytes = 0; st.lastPatternMsg = null; }
         }
       }
     }
