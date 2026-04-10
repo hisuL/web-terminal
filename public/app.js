@@ -2495,7 +2495,7 @@
       editorView = new mod.EditorView({
         state: mod.EditorState.create({
           doc: d.content,
-          extensions: [mod.basicSetup, mod.oneDark, ...langExt, updateListener, editorReadOnlyCompartment.of(mod.EditorState.readOnly.of(true))],
+          extensions: [mod.basicSetup, mod.oneDark, ...langExt, updateListener, editorReadOnlyCompartment.of(mod.EditorState.readOnly.of(true)), mod.EditorView.lineWrapping],
         }),
         parent: editorArea,
       });
