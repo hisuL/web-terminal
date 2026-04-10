@@ -512,23 +512,30 @@ html, body {
   height: 16px;
 }
 
-/* Expand/collapse toggle in sidebar tabs */
+/* Expand/collapse toggle in sidebar tabs — matches .sidebar-tab style */
 #name-expand-btn {
   background: none;
   border: none;
+  border-bottom: 2px solid transparent;
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 10px 8px;
   margin-left: auto;
-  transition: color 0.15s;
+  flex: none;
+  transition: color 0.15s, border-color 0.15s;
   white-space: nowrap;
 }
 #name-expand-btn:hover {
-  color: var(--accent);
+  color: var(--text);
 }
 #name-expand-btn.active {
   color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 /* New Session — primary CTA with glow */
