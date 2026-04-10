@@ -29,7 +29,7 @@
   let reconnectTimer = null;
   let sidebarOpen = false;
   let shortcutBarOpen = false;
-  let currentFontSize = window.innerWidth <= 768 ? 13 : 15;
+  let currentFontSize = parseInt(localStorage.getItem("termFontSize"), 10) || (window.innerWidth <= 768 ? 13 : 15);
   const MIN_FONT_SIZE = 8;
   const MAX_FONT_SIZE = 32;
 
@@ -1084,6 +1084,7 @@
         newSize = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, newSize));
         if (newSize !== currentFontSize) {
           currentFontSize = newSize;
+          localStorage.setItem("termFontSize", newSize);
           updateFontSizeLabel();
           if (terminal) {
             terminal.options.fontSize = newSize;
@@ -1267,6 +1268,7 @@
     const newSize = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, currentFontSize + delta));
     if (newSize === currentFontSize) return;
     currentFontSize = newSize;
+    localStorage.setItem("termFontSize", newSize);
     updateFontSizeLabel();
     if (terminal) {
       terminal.options.fontSize = newSize;
