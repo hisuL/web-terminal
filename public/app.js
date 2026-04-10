@@ -399,6 +399,15 @@
     }
   }
 
+  function syncWizardNextBtn() {
+    if (wizard.step !== 0) return;
+    if (wizard.selectedDir) {
+      wizardNext.textContent = "下一步 (" + wizard.selectedDir.split("/").pop() + ") →";
+    } else {
+      wizardNext.textContent = "下一步 →";
+    }
+  }
+
   // ---- Step 1: Directory Browser ----
   let dirBrowserPath = null; // current browse path
 
@@ -438,8 +447,9 @@
     pathBar.className = "dir-path-bar";
     if (data.parent !== null) {
       const upBtn = document.createElement("button");
+      upBtn.className = "dir-back-btn";
       upBtn.title = "上级目录";
-      upBtn.textContent = "← 返回";
+      upBtn.innerHTML = "&#8592; 返回";
       upBtn.addEventListener("click", () => loadDirBrowser(wrap, data.parent));
       pathBar.appendChild(upBtn);
     }
@@ -494,6 +504,8 @@
               curBtn.style.color = "";
             }
           }
+          // 同步更新 Next 按钮状态
+          syncWizardNextBtn();
         }, 220);
       });
       list.appendChild(item);
@@ -518,6 +530,7 @@
       selectCurrentBtn.textContent = "✓ 已选：" + data.current.split("/").pop();
       selectCurrentBtn.style.borderColor = "var(--accent)";
       selectCurrentBtn.style.color = "var(--accent)";
+      syncWizardNextBtn();
     });
     wrap.appendChild(selectCurrentBtn);
     if (wizard.selectedDir === data.current) {
@@ -654,7 +667,8 @@
       labelEl.innerHTML = `${escapeHtml(lbl)}<span>${escapeHtml(desc)}</span>`;
       row.appendChild(cb);
       row.appendChild(labelEl);
-      row.addEventListener("click", (e) => { if (e.target !== cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event("change")); } });
+      const labelEl2 = labelEl; // avoid re-reference
+      labelEl2.addEventListener("click", () => { cb.checked = !cb.checked; cb.dispatchEvent(new Event("change")); });
       container.appendChild(row);
     });
   }
@@ -697,7 +711,8 @@
       labelEl.innerHTML = `${escapeHtml(lbl)}<span>${escapeHtml(desc)}</span>`;
       row.appendChild(cb);
       row.appendChild(labelEl);
-      row.addEventListener("click", (e) => { if (e.target !== cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event("change")); } });
+      const labelEl2 = labelEl; // avoid re-reference
+      labelEl2.addEventListener("click", () => { cb.checked = !cb.checked; cb.dispatchEvent(new Event("change")); });
       container.appendChild(row);
     });
   }
@@ -742,6 +757,8 @@
   async function closeSession(id) {
     if (!confirm("Close this session?")) return;
     await fetch(`/api/sessions/${id}`, { method: "DELETE" });
+    sessionFileTreeRoots.delete(id);
+    sessionCwds.delete(id);
     if (id === activeSessionId) {
       disconnectTerminal();
       activeSessionId = null;
@@ -790,6 +807,10 @@
   // --- Terminal Connection ---
   function switchSession(id) {
     if (id === activeSessionId) return;
+    // Save current file tree root before switching
+    if (activeSessionId && fileTreeRoot) {
+      sessionFileTreeRoots.set(activeSessionId, fileTreeRoot);
+    }
     // Close editor if open
     if (typeof closeEditor === "function" && document.getElementById("editor-container").style.display !== "none") {
       if (editorView) { editorView.destroy(); editorView = null; }
@@ -2008,12 +2029,15 @@
   // --- File Tree (US-009) ---
   const fileTree = document.getElementById("file-tree");
   const fileTreePath = document.getElementById("file-tree-path");
+  const fileTreeBackBtn = document.getElementById("file-tree-back-btn");
   const fileHiddenToggle = document.getElementById("file-tree-hidden-toggle");
   const fileUploadBtn = document.getElementById("file-tree-upload-btn");
   const fileRefreshBtn = document.getElementById("file-tree-refresh-btn");
   const fileUploadInput = document.getElementById("file-upload-input");
 
   let fileTreeRoot = null; // current root path
+  const sessionFileTreeRoots = new Map(); // session ID -> file tree root path
+  const sessionCwds = new Map(); // session ID -> session cwd (baseline)
   let showHiddenFiles = localStorage.getItem("showHidden") === "true";
   if (showHiddenFiles) fileHiddenToggle.classList.add("active");
 
@@ -2033,14 +2057,39 @@
     try {
       const r = await fetch(`/api/sessions/${activeSessionId}/cwd`);
       const d = await r.json();
-      fileTreeRoot = d.cwd;
-      fileTreePath.textContent = d.cwd;
-      fileTreePath.title = d.cwd;
-      renderFileTreeRoot(d.cwd);
+      sessionCwds.set(activeSessionId, d.cwd);
+      // Restore stored root or default to session cwd
+      const storedRoot = sessionFileTreeRoots.get(activeSessionId);
+      fileTreeRoot = storedRoot || d.cwd;
+      fileTreePath.textContent = fileTreeRoot;
+      fileTreePath.title = fileTreeRoot;
+      updateFileTreeBackBtn();
+      renderFileTreeRoot(fileTreeRoot);
     } catch {
       fileTree.innerHTML = '<div class="ft-empty">Failed to load</div>';
     }
   }
+
+  function navigateFileTree(newRoot) {
+    if (!activeSessionId) return;
+    fileTreeRoot = newRoot;
+    sessionFileTreeRoots.set(activeSessionId, newRoot);
+    fileTreePath.textContent = newRoot;
+    fileTreePath.title = newRoot;
+    updateFileTreeBackBtn();
+    renderFileTreeRoot(newRoot);
+  }
+
+  function updateFileTreeBackBtn() {
+    const cwd = sessionCwds.get(activeSessionId);
+    fileTreeBackBtn.disabled = !fileTreeRoot || !cwd || fileTreeRoot === cwd;
+  }
+
+  fileTreeBackBtn.addEventListener("click", () => {
+    if (fileTreeBackBtn.disabled || !fileTreeRoot) return;
+    const parent = fileTreeRoot.replace(/\/[^/]+\/?$/, "") || "/";
+    navigateFileTree(parent);
+  });
 
   async function renderFileTreeRoot(rootPath) {
     fileTree.innerHTML = '<div class="ft-loading">Loading...</div>';
@@ -2094,6 +2143,13 @@
       const children = document.createElement("div");
       children.className = "ft-children";
       item.appendChild(children);
+
+      // Double-click to drill into folder as new root
+      row.addEventListener("dblclick", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        navigateFileTree(fullPath);
+      });
 
       let loaded = false;
       row.addEventListener("click", async () => {
@@ -2276,12 +2332,15 @@
   const editorLang = document.getElementById("editor-lang");
   const editorPosition = document.getElementById("editor-position");
   const editorSaveStatus = document.getElementById("editor-save-status");
+  const editorEditBtn = document.getElementById("editor-edit-btn");
   const editorCloseBtn = document.getElementById("editor-close-btn");
 
   let editorView = null;
   let editorFilePath = null;
   let editorSaveTimer = null;
   let editorDirty = false;
+  let editorReadOnly = true;
+  let editorReadOnlyCompartment = null;
 
   async function openFileInEditor(filePath, fileName) {
     try {
@@ -2312,11 +2371,14 @@
 
       editorFilePath = filePath;
       editorDirty = false;
+      editorReadOnly = true;
+      editorReadOnlyCompartment = new mod.Compartment();
       editorFilename.textContent = fileName;
       editorFilename.title = filePath;
       editorLang.textContent = mod.getLangName(fileName);
       editorPosition.textContent = "1:1";
-      updateSaveStatus("saved");
+      updateSaveStatus("readonly");
+      updateEditorEditBtn();
 
       // Show editor, hide terminal
       terminalContainer.style.display = "none";
@@ -2324,7 +2386,7 @@
 
       const langExt = mod.getLangExtension(fileName);
       const updateListener = mod.EditorView.updateListener.of((update) => {
-        if (update.docChanged) {
+        if (update.docChanged && !editorReadOnly) {
           editorDirty = true;
           updateSaveStatus("unsaved");
           clearTimeout(editorSaveTimer);
@@ -2340,7 +2402,7 @@
       editorView = new mod.EditorView({
         state: mod.EditorState.create({
           doc: d.content,
-          extensions: [mod.basicSetup, mod.oneDark, ...langExt, updateListener],
+          extensions: [mod.basicSetup, mod.oneDark, ...langExt, updateListener, editorReadOnlyCompartment.of(mod.EditorState.readOnly.of(true))],
         }),
         parent: editorArea,
       });
@@ -2357,6 +2419,45 @@
     else if (status === "saving") editorSaveStatus.textContent = "Saving...";
     else if (status === "unsaved") editorSaveStatus.textContent = "\u25CF Unsaved";
     else if (status === "error") editorSaveStatus.textContent = "\u2717 " + (msg || "Error");
+    else if (status === "readonly") editorSaveStatus.textContent = "\uD83D\uDD12 Read-Only";
+  }
+
+  function updateEditorEditBtn() {
+    if (editorReadOnly) {
+      editorEditBtn.innerHTML = "&#9998; Read-Only";
+      editorEditBtn.classList.remove("editing");
+      editorEditBtn.title = "Click to enable editing";
+    } else {
+      editorEditBtn.innerHTML = "&#9998; Editing";
+      editorEditBtn.classList.add("editing");
+      editorEditBtn.title = "Click to switch to read-only";
+    }
+  }
+
+  function toggleEditorReadOnly() {
+    if (!editorView || !editorReadOnlyCompartment) return;
+    const mod = window._editorModule;
+    if (!mod) return;
+
+    if (editorReadOnly) {
+      // Switch to edit mode
+      editorReadOnly = false;
+      editorView.dispatch({ effects: editorReadOnlyCompartment.reconfigure(mod.EditorState.readOnly.of(false)) });
+      updateSaveStatus(editorDirty ? "unsaved" : "saved");
+    } else {
+      // Switch to read-only
+      if (editorDirty) {
+        if (!confirm("Save changes before switching to read-only?")) {
+          // Stay in edit mode
+          return;
+        }
+        autoSave();
+      }
+      editorReadOnly = true;
+      editorView.dispatch({ effects: editorReadOnlyCompartment.reconfigure(mod.EditorState.readOnly.of(true)) });
+      updateSaveStatus("readonly");
+    }
+    updateEditorEditBtn();
   }
 
   async function autoSave() {
@@ -2395,13 +2496,16 @@
   }
 
   editorCloseBtn.addEventListener("click", closeEditor);
+  editorEditBtn.addEventListener("click", toggleEditorReadOnly);
 
-  // Ctrl+S / Cmd+S to save
+  // Ctrl+S / Cmd+S to save (only in edit mode)
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "s" && editorContainer.style.display !== "none") {
       e.preventDefault();
-      clearTimeout(editorSaveTimer);
-      autoSave();
+      if (!editorReadOnly) {
+        clearTimeout(editorSaveTimer);
+        autoSave();
+      }
     }
   });
 

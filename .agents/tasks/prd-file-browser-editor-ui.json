@@ -1,0 +1,242 @@
+{
+  "version": 1,
+  "project": "File Browser Navigation, Editor Read-Only Mode & Directory Picker Fixes",
+  "overview": "Improve the web-terminal's file browser with back-button navigation and folder drill-down, add a read-only default mode to the code editor with an edit toggle, and fix several UX bugs in the session wizard's directory selection UI.",
+  "goals": [
+    "File tree header gains a back button to navigate to the parent directory",
+    "Double-clicking a folder changes the file tree root into that folder",
+    "Switching sessions and back restores the previously browsed file tree root",
+    "Editor opens files in read-only mode by default; toolbar Edit button toggles to read-write with auto-save",
+    "Wizard directory picker: selecting a subdirectory immediately updates the 'selected' button state",
+    "Wizard directory picker: fix checkbox double-toggle caused by htmlFor",
+    "Wizard directory picker: back button restyled as a prominent arrow button"
+  ],
+  "nonGoals": [
+    "No browsing history stack or forward/back multi-step navigation — only parent traversal",
+    "No breadcrumb navigation — path shown as full absolute path",
+    "No configurable auto-save toggle — editing mode always uses existing auto-save",
+    "No drag-and-drop reordering in file tree",
+    "No file tree search/filter"
+  ],
+  "successMetrics": [
+    "Back button in file tree header navigates to parent directory in under 1 click",
+    "Double-click folder updates file tree root and path display correctly",
+    "Session switch round-trip preserves file tree root path",
+    "Opened file is non-editable until Edit button is clicked",
+    "Wizard checkbox toggles exactly once per click",
+    "All E2E tests pass via Playwright"
+  ],
+  "openQuestions": [],
+  "stack": {
+    "framework": "Express + Vanilla JS (existing)",
+    "hosting": "Self-hosted Node.js",
+    "database": "None (in-memory sessions)",
+    "auth": "None",
+    "testing": "Playwright for E2E"
+  },
+  "routes": [
+    { "path": "/", "name": "Main App", "purpose": "Terminal, file tree, editor — single page app" },
+    { "path": "/api/fs/list", "name": "List Directory", "purpose": "Returns directory contents for file tree" },
+    { "path": "/api/dirs", "name": "Browse Directories", "purpose": "Returns subdirectories for wizard directory picker" }
+  ],
+  "uiNotes": [
+    "File tree header: add a '← Back' button (arrow icon) left of the path display; disabled when at session cwd root",
+    "File tree path display: show full absolute path of current file tree root",
+    "Double-click on folder row in file tree changes fileTreeRoot and re-renders",
+    "Editor toolbar: add 'Edit' button (pencil icon or text) that toggles CodeMirror readOnly state",
+    "Editor toolbar: in read-only mode show lock icon / 'Read-Only' label; in edit mode show pencil icon / 'Editing'",
+    "Wizard back button: larger, with '←' arrow icon, visually prominent (not a plain text link)"
+  ],
+  "dataModel": [],
+  "importFormat": {
+    "description": "Not applicable",
+    "example": {}
+  },
+  "rules": [
+    "fileTreeRoot per session is stored in a JS Map keyed by session ID",
+    "When switching to Files tab, restore the stored fileTreeRoot for the active session (default: session cwd)",
+    "Editor readOnly is the default; toggling to edit enables the existing auto-save (1s debounce)",
+    "Wizard checkbox inputs must not have htmlFor on the label that wraps them (prevents double toggle)",
+    "Back button in file tree is hidden or disabled when fileTreeRoot equals the session cwd"
+  ],
+  "qualityGates": [
+    "npm test",
+    "npm run lint",
+    "npm run build:editor",
+    "npx playwright test"
+  ],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Fix wizard directory picker checkbox double-toggle",
+      "status": "open",
+      "dependsOn": [],
+      "description": "As a user, I want the directory checkbox in the wizard to toggle exactly once per click so that my selection is not immediately reversed.",
+      "acceptanceCriteria": [
+        "Remove htmlFor attribute from label elements that wrap checkbox inputs in the wizard directory picker (app.js renderDirStep area)",
+        "Example: clicking a directory checkbox selects it and the checked state remains visible",
+        "Negative case: clicking the label text next to the checkbox does not cause a double-toggle (uncheck then recheck)",
+        "Existing directory selection behavior is unchanged (single-click selects, double-click navigates)"
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "Fix wizard selected-directory button state sync",
+      "status": "open",
+      "dependsOn": ["US-001"],
+      "description": "As a user, I want the 'selected' / 'Next' button in the wizard to immediately reflect the currently selected subdirectory so I know my choice registered.",
+      "acceptanceCriteria": [
+        "When a subdirectory is single-clicked, the footer 'Next' button text updates to show the selected directory name or path",
+        "The Next button becomes enabled immediately upon selection (no extra click needed)",
+        "Example: click 'src' folder → Next button shows 'Next (src)' or similar and is enabled",
+        "Negative case: if no directory is selected, Next button remains disabled or shows default session cwd",
+        "Previously selected directory is deselected visually when a new one is clicked"
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Restyle wizard back button as prominent arrow button",
+      "status": "open",
+      "dependsOn": [],
+      "description": "As a user, I want the wizard's back/parent-directory button to be visually prominent with an arrow icon so it is easy to find and tap.",
+      "acceptanceCriteria": [
+        "Back button in wizard directory browser displays '←' arrow icon (or ← Back text)",
+        "Button has larger padding, min-height ~40px, clear hover/active states",
+        "Button is visually distinct from directory list items",
+        "Example: navigating into /home/user/project, the back button is clearly visible at the top",
+        "Negative case: at the filesystem root '/', back button is disabled or hidden"
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "File tree back button and parent navigation",
+      "status": "open",
+      "dependsOn": [],
+      "description": "As a user, I want a back button in the file tree header to navigate to the parent directory so I can move up the directory tree.",
+      "acceptanceCriteria": [
+        "A '←' back button is added to the file tree header, positioned left of the current path display",
+        "Clicking the back button sets fileTreeRoot to the parent directory and re-renders the file tree",
+        "The path display (#file-tree-path) updates to show the new full absolute path",
+        "Example: current root is /home/user/project/src → click back → root becomes /home/user/project",
+        "Negative case: when fileTreeRoot equals the session's cwd, back button is disabled (grayed out) to prevent navigating above the session root",
+        "Back button uses '←' arrow icon, visually consistent with other header buttons"
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "Double-click folder to change file tree root",
+      "status": "open",
+      "dependsOn": ["US-004"],
+      "description": "As a user, I want to double-click a folder in the file tree to drill into it as the new root so I can focus on a subdirectory.",
+      "acceptanceCriteria": [
+        "Double-clicking a folder in the file tree sets fileTreeRoot to that folder's absolute path",
+        "The file tree re-renders showing only the contents of the new root",
+        "The path display updates to the new absolute path",
+        "Single-click on folder still expands/collapses inline (existing behavior preserved)",
+        "Example: double-click 'src' folder at /home/user/project/src → file tree root changes, shows src contents at top level",
+        "Negative case: double-clicking a file does not change the root (files open in editor as before)"
+      ]
+    },
+    {
+      "id": "US-006",
+      "title": "Per-session file tree root persistence",
+      "status": "open",
+      "dependsOn": ["US-004", "US-005"],
+      "description": "As a user, I want each session to remember its file tree root directory so that switching sessions and switching back restores my browsing position.",
+      "acceptanceCriteria": [
+        "A JavaScript Map (sessionFileTreeRoots) stores fileTreeRoot keyed by session ID",
+        "When switching away from a session, the current fileTreeRoot is saved to the map",
+        "When switching to a session, the stored fileTreeRoot is restored (or defaults to session cwd if none stored)",
+        "When the Files sidebar tab is activated, it uses the stored root for the current session",
+        "Example: session A browsed to /home/user/project/src, switch to session B, switch back to A → file tree shows /home/user/project/src",
+        "Negative case: deleting a session removes its entry from the map; a new session starts at its cwd"
+      ]
+    },
+    {
+      "id": "US-007",
+      "title": "Editor read-only mode by default",
+      "status": "open",
+      "dependsOn": [],
+      "description": "As a user, I want files to open in read-only mode by default so I don't accidentally modify them.",
+      "acceptanceCriteria": [
+        "openFileInEditor() creates the CodeMirror EditorView with readOnly: true in the EditorState config",
+        "In read-only mode, typing does not modify the document",
+        "In read-only mode, the save status area shows a lock icon or 'Read-Only' text instead of save status",
+        "Standard text selection and Ctrl+C / Cmd+C copy still work in read-only mode",
+        "Example: open a .js file → cannot type or paste into it, but can select and copy text",
+        "Negative case: keyboard shortcuts like Ctrl+S do nothing in read-only mode (no save attempt)"
+      ]
+    },
+    {
+      "id": "US-008",
+      "title": "Editor toolbar Edit button to toggle read-write",
+      "status": "open",
+      "dependsOn": ["US-007"],
+      "description": "As a user, I want an Edit button in the editor toolbar to switch from read-only to editing mode so I can modify the file when I choose.",
+      "acceptanceCriteria": [
+        "An 'Edit' button (pencil icon or '✏ Edit' text) is added to the editor toolbar",
+        "Clicking Edit toggles CodeMirror's readOnly state from true to false via EditorView.dispatch with readOnly reconfiguration",
+        "After toggling to edit mode: button changes to show 'Editing' state, auto-save (1s debounce) is active, save status shows normally",
+        "Clicking again toggles back to read-only (if no unsaved changes, or prompts to save first)",
+        "Example: open file (read-only) → click Edit → type changes → auto-save triggers after 1s → status shows '✓ Saved'",
+        "Negative case: toggling back to read-only with unsaved changes prompts user to save or discard"
+      ]
+    },
+    {
+      "id": "US-009",
+      "title": "Add Playwright E2E test infrastructure",
+      "status": "open",
+      "dependsOn": [],
+      "description": "As a developer, I want Playwright E2E test scaffolding so that new features can be verified with automated browser tests.",
+      "acceptanceCriteria": [
+        "Install @playwright/test as devDependency: npm install -D @playwright/test",
+        "Create playwright.config.js with baseURL pointing to localhost server port",
+        "Add 'test:e2e' script to package.json: 'npx playwright test'",
+        "Add a smoke test (tests/e2e/smoke.spec.js) that loads the app and verifies the main page renders",
+        "Example: npx playwright test runs and the smoke test passes",
+        "Negative case: test fails gracefully with clear error if server is not running"
+      ]
+    },
+    {
+      "id": "US-010",
+      "title": "E2E tests for file browser navigation",
+      "status": "open",
+      "dependsOn": ["US-004", "US-005", "US-006", "US-009"],
+      "description": "As a developer, I want E2E tests covering the file browser back button, double-click navigation, and session persistence so regressions are caught.",
+      "acceptanceCriteria": [
+        "Test: back button navigates to parent directory and path display updates",
+        "Test: double-click folder changes file tree root",
+        "Test: switch session and back, file tree root is restored",
+        "Test: back button is disabled at session cwd root",
+        "All tests pass via npx playwright test"
+      ]
+    },
+    {
+      "id": "US-011",
+      "title": "E2E tests for editor read-only mode and edit toggle",
+      "status": "open",
+      "dependsOn": ["US-007", "US-008", "US-009"],
+      "description": "As a developer, I want E2E tests covering the editor's read-only default and edit toggle so regressions are caught.",
+      "acceptanceCriteria": [
+        "Test: opening a file shows read-only state (typing has no effect)",
+        "Test: clicking Edit button enables editing",
+        "Test: auto-save triggers after editing",
+        "Test: toggling back to read-only works",
+        "All tests pass via npx playwright test"
+      ]
+    },
+    {
+      "id": "US-012",
+      "title": "E2E tests for wizard directory picker fixes",
+      "status": "open",
+      "dependsOn": ["US-001", "US-002", "US-003", "US-009"],
+      "description": "As a developer, I want E2E tests covering the wizard directory picker fixes so regressions are caught.",
+      "acceptanceCriteria": [
+        "Test: checkbox toggles exactly once per click (no double-toggle)",
+        "Test: selecting a subdirectory updates the Next button state",
+        "Test: back button in wizard is visually prominent and functional",
+        "All tests pass via npx playwright test"
+      ]
+    }
+  ]
+}

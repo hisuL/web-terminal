@@ -1,5 +1,5 @@
 import { EditorView, basicSetup } from "codemirror";
-import { EditorState } from "@codemirror/state";
+import { EditorState, Compartment } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
@@ -45,6 +45,7 @@ function getLangName(filename) {
 window._editorModule = {
   EditorView,
   EditorState,
+  Compartment,
   basicSetup,
   oneDark,
   getLangExtension,
