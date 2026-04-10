@@ -707,12 +707,31 @@ app.post("/api/attach/tmux", (req, res) => {
           client.send(data);
         }
       }
+
+      // tmux AI notification — detect all AI patterns when no one is watching
+      if (session.clients.size === 0) {
+        // Check both claude and codex patterns since tmux can run anything
+        const message = detectAiPattern(data, "claude") || detectAiPattern(data, "codex");
+        if (message) {
+          const st = notifState.get(id) || {};
+          if (message !== st.lastPatternMsg && canNotify(id)) {
+            recordNotify(id);
+            st.lastPatternMsg = message;
+            notifState.set(id, st);
+            broadcastNotification(id, session.name, "tmux", message);
+          }
+        }
+      } else {
+        const st = notifState.get(id);
+        if (st) st.lastPatternMsg = null;
+      }
     }
   });
 
   ptyProcess.onExit(({ exitCode }) => {
     // Clean up grouped session
     try { execSync(`tmux kill-session -t '${groupSessionName}' 2>/dev/null`); } catch {}
+    notifState.delete(id);
     const session = sessions.get(id);
     if (session) {
       for (const client of session.clients) {
