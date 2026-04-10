@@ -383,6 +383,16 @@ app.post("/api/dirs", (req, res) => {
 app.get("/api/sessions/:id/cwd", (req, res) => {
   const session = sessions.get(req.params.id);
   if (!session) return res.status(404).json({ error: "Session not found" });
+
+  // tmux 会话：通过 tmux display-message 获取 pane 内 shell 的实际 cwd
+  if (session.tmuxTarget) {
+    const groupName = `_wt_${session.id}`;
+    try {
+      const cwd = execSync(`tmux display-message -t '${groupName}' -p '#{pane_current_path}' 2>/dev/null`).toString().trim();
+      if (cwd) return res.json({ cwd });
+    } catch {}
+  }
+
   try {
     const pid = session.pty.pid;
     const cwd = fs.readlinkSync(`/proc/${pid}/cwd`);
