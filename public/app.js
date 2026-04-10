@@ -790,6 +790,12 @@
   // --- Terminal Connection ---
   function switchSession(id) {
     if (id === activeSessionId) return;
+    // Close editor if open
+    if (typeof closeEditor === "function" && document.getElementById("editor-container").style.display !== "none") {
+      if (editorView) { editorView.destroy(); editorView = null; }
+      document.getElementById("editor-area").innerHTML = "";
+      document.getElementById("editor-container").style.display = "none";
+    }
     disconnectTerminal();
     activeSessionId = id;
     // Mark all notifications for this session as read
@@ -800,8 +806,9 @@
     // 快捷键栏已打开时，切换 session 后立刻重建固定行（tmux/非tmux 按钮不同）
     if (shortcutBarOpen) {
       buildFixedRow();
-      // AI 行保留上次结果，不自动刷新
     }
+    // Refresh file tree if Files tab active
+    if (activeSidebarTab === "files") loadFileTreeForSession();
   }
 
   function updateMainView() {
@@ -1981,6 +1988,426 @@
   setInterval(() => {
     if (notifPanelOpen) renderNotifList();
   }, 30000);
+
+  // --- Sidebar Tab Switching (US-008) ---
+  let activeSidebarTab = "sessions";
+  const sidebarTabs = document.querySelectorAll(".sidebar-tab");
+  const panelSessions = document.getElementById("sidebar-panel-sessions");
+  const panelFiles = document.getElementById("sidebar-panel-files");
+
+  function switchSidebarTab(tab) {
+    activeSidebarTab = tab;
+    sidebarTabs.forEach((t) => t.classList.toggle("active", t.dataset.tab === tab));
+    panelSessions.style.display = tab === "sessions" ? "flex" : "none";
+    panelFiles.style.display = tab === "files" ? "flex" : "none";
+    if (tab === "files" && activeSessionId) loadFileTreeForSession();
+  }
+
+  sidebarTabs.forEach((t) => t.addEventListener("click", () => switchSidebarTab(t.dataset.tab)));
+
+  // --- File Tree (US-009) ---
+  const fileTree = document.getElementById("file-tree");
+  const fileTreePath = document.getElementById("file-tree-path");
+  const fileHiddenToggle = document.getElementById("file-tree-hidden-toggle");
+  const fileUploadBtn = document.getElementById("file-tree-upload-btn");
+  const fileRefreshBtn = document.getElementById("file-tree-refresh-btn");
+  const fileUploadInput = document.getElementById("file-upload-input");
+
+  let fileTreeRoot = null; // current root path
+  let showHiddenFiles = localStorage.getItem("showHidden") === "true";
+  if (showHiddenFiles) fileHiddenToggle.classList.add("active");
+
+  fileHiddenToggle.addEventListener("click", () => {
+    showHiddenFiles = !showHiddenFiles;
+    localStorage.setItem("showHidden", showHiddenFiles);
+    fileHiddenToggle.classList.toggle("active", showHiddenFiles);
+    if (fileTreeRoot) renderFileTreeRoot(fileTreeRoot);
+  });
+
+  fileRefreshBtn.addEventListener("click", () => {
+    if (fileTreeRoot) renderFileTreeRoot(fileTreeRoot);
+  });
+
+  async function loadFileTreeForSession() {
+    if (!activeSessionId) return;
+    try {
+      const r = await fetch(`/api/sessions/${activeSessionId}/cwd`);
+      const d = await r.json();
+      fileTreeRoot = d.cwd;
+      fileTreePath.textContent = d.cwd;
+      fileTreePath.title = d.cwd;
+      renderFileTreeRoot(d.cwd);
+    } catch {
+      fileTree.innerHTML = '<div class="ft-empty">Failed to load</div>';
+    }
+  }
+
+  async function renderFileTreeRoot(rootPath) {
+    fileTree.innerHTML = '<div class="ft-loading">Loading...</div>';
+    try {
+      const r = await fetch(`/api/fs/list?path=${encodeURIComponent(rootPath)}&hidden=${showHiddenFiles}`);
+      const d = await r.json();
+      fileTree.innerHTML = "";
+      if (d.entries.length === 0) {
+        fileTree.innerHTML = '<div class="ft-empty">(empty)</div>';
+        return;
+      }
+      d.entries.forEach((entry) => {
+        fileTree.appendChild(createFileTreeItem(entry, rootPath, 0));
+      });
+    } catch {
+      fileTree.innerHTML = '<div class="ft-empty">Failed to load</div>';
+    }
+  }
+
+  function createFileTreeItem(entry, parentPath, depth) {
+    const fullPath = parentPath.replace(/\/$/, "") + "/" + entry.name;
+    const item = document.createElement("div");
+
+    const row = document.createElement("div");
+    row.className = "ft-item";
+    row.style.paddingLeft = (8 + depth * 16) + "px";
+    row.dataset.path = fullPath;
+    row.dataset.type = entry.type;
+
+    const icon = document.createElement("span");
+    icon.className = "ft-icon";
+    icon.textContent = entry.type === "directory" ? "\u{1F4C1}" : "\u{1F4C4}";
+
+    const name = document.createElement("span");
+    name.className = "ft-name";
+    name.textContent = entry.name;
+
+    row.appendChild(icon);
+    row.appendChild(name);
+
+    if (entry.type === "file" && entry.size != null) {
+      const size = document.createElement("span");
+      size.className = "ft-size";
+      size.textContent = formatFileSize(entry.size);
+      row.appendChild(size);
+    }
+
+    item.appendChild(row);
+
+    if (entry.type === "directory") {
+      const children = document.createElement("div");
+      children.className = "ft-children";
+      item.appendChild(children);
+
+      let loaded = false;
+      row.addEventListener("click", async () => {
+        if (!loaded) {
+          children.innerHTML = '<div class="ft-loading">Loading...</div>';
+          children.classList.add("open");
+          try {
+            const r = await fetch(`/api/fs/list?path=${encodeURIComponent(fullPath)}&hidden=${showHiddenFiles}`);
+            const d = await r.json();
+            children.innerHTML = "";
+            if (d.entries.length === 0) {
+              children.innerHTML = '<div class="ft-empty">(empty)</div>';
+            } else {
+              d.entries.forEach((e) => children.appendChild(createFileTreeItem(e, fullPath, depth + 1)));
+            }
+            loaded = true;
+          } catch {
+            children.innerHTML = '<div class="ft-empty">Failed to load</div>';
+          }
+          icon.textContent = "\u{1F4C2}"; // open folder
+        } else {
+          const isOpen = children.classList.toggle("open");
+          icon.textContent = isOpen ? "\u{1F4C2}" : "\u{1F4C1}";
+        }
+      });
+    } else {
+      // File click -> open in editor
+      row.addEventListener("click", () => openFileInEditor(fullPath, entry.name));
+    }
+
+    // Context menu
+    row.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      showContextMenu(e.clientX, e.clientY, fullPath, entry, parentPath, item);
+    });
+
+    // Long press for mobile
+    let longPressTimer = null;
+    row.addEventListener("touchstart", (e) => {
+      longPressTimer = setTimeout(() => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        showContextMenu(touch.clientX, touch.clientY, fullPath, entry, parentPath, item);
+      }, 500);
+    }, { passive: false });
+    row.addEventListener("touchend", () => clearTimeout(longPressTimer));
+    row.addEventListener("touchmove", () => clearTimeout(longPressTimer));
+
+    return item;
+  }
+
+  function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  // --- Context Menu (US-010) ---
+  function showContextMenu(x, y, filePath, entry, parentPath, itemEl) {
+    closeContextMenu();
+    const menu = document.createElement("div");
+    menu.className = "ft-context-menu";
+    menu.id = "ft-ctx";
+
+    const items = [];
+    if (entry.type === "directory") {
+      items.push({ label: "New File", action: () => inlineCreate(itemEl, filePath, "file") });
+      items.push({ label: "New Folder", action: () => inlineCreate(itemEl, filePath, "directory") });
+      items.push(null); // separator
+    }
+    items.push({ label: "Rename", action: () => inlineRename(filePath, entry, parentPath) });
+    items.push({ label: "Delete", action: () => deleteEntry(filePath, entry.name) });
+    items.push(null);
+    items.push({ label: "Download", action: () => downloadEntry(filePath) });
+
+    items.forEach((it) => {
+      if (!it) { const sep = document.createElement("div"); sep.className = "ft-context-sep"; menu.appendChild(sep); return; }
+      const el = document.createElement("div");
+      el.className = "ft-context-item";
+      el.textContent = it.label;
+      el.addEventListener("click", () => { closeContextMenu(); it.action(); });
+      menu.appendChild(el);
+    });
+
+    // Position
+    menu.style.left = Math.min(x, window.innerWidth - 170) + "px";
+    menu.style.top = Math.min(y, window.innerHeight - 200) + "px";
+    document.body.appendChild(menu);
+
+    setTimeout(() => document.addEventListener("click", closeContextMenu, { once: true }), 10);
+  }
+
+  function closeContextMenu() {
+    const m = document.getElementById("ft-ctx");
+    if (m) m.remove();
+  }
+
+  async function inlineCreate(itemEl, parentPath, type) {
+    const name = prompt(type === "file" ? "New file name:" : "New folder name:");
+    if (!name || !name.trim()) return;
+    const newPath = parentPath.replace(/\/$/, "") + "/" + name.trim();
+    try {
+      const r = await fetch("/api/fs/create", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: newPath, type }),
+      });
+      if (!r.ok) { const e = await r.json(); alert(e.error); return; }
+      if (fileTreeRoot) renderFileTreeRoot(fileTreeRoot);
+    } catch {}
+  }
+
+  async function inlineRename(filePath, entry, parentPath) {
+    const newName = prompt("Rename to:", entry.name);
+    if (!newName || !newName.trim() || newName.trim() === entry.name) return;
+    const newPath = parentPath.replace(/\/$/, "") + "/" + newName.trim();
+    try {
+      const r = await fetch("/api/fs/rename", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oldPath: filePath, newPath }),
+      });
+      if (!r.ok) { const e = await r.json(); alert(e.error); return; }
+      if (fileTreeRoot) renderFileTreeRoot(fileTreeRoot);
+    } catch {}
+  }
+
+  async function deleteEntry(filePath, name) {
+    if (!confirm(`Delete "${name}"?`)) return;
+    try {
+      const r = await fetch("/api/fs/delete", {
+        method: "DELETE", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: filePath }),
+      });
+      if (!r.ok) { const e = await r.json(); alert(e.error); return; }
+      if (fileTreeRoot) renderFileTreeRoot(fileTreeRoot);
+    } catch {}
+  }
+
+  function downloadEntry(filePath) {
+    const a = document.createElement("a");
+    a.href = "/api/fs/download?path=" + encodeURIComponent(filePath);
+    a.download = "";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  // --- File Upload (US-013) ---
+  fileUploadBtn.addEventListener("click", () => fileUploadInput.click());
+
+  fileUploadInput.addEventListener("change", async () => {
+    if (!fileUploadInput.files.length || !fileTreeRoot) return;
+    const formData = new FormData();
+    for (const f of fileUploadInput.files) formData.append("files", f);
+    try {
+      await fetch(`/api/fs/upload?dest=${encodeURIComponent(fileTreeRoot)}`, { method: "POST", body: formData });
+      renderFileTreeRoot(fileTreeRoot);
+    } catch {}
+    fileUploadInput.value = "";
+  });
+
+  // Drag and drop on file tree
+  fileTree.addEventListener("dragover", (e) => { e.preventDefault(); fileTree.classList.add("drag-over"); });
+  fileTree.addEventListener("dragleave", () => fileTree.classList.remove("drag-over"));
+  fileTree.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    fileTree.classList.remove("drag-over");
+    if (!e.dataTransfer.files.length || !fileTreeRoot) return;
+    const formData = new FormData();
+    for (const f of e.dataTransfer.files) formData.append("files", f);
+    try {
+      await fetch(`/api/fs/upload?dest=${encodeURIComponent(fileTreeRoot)}`, { method: "POST", body: formData });
+      renderFileTreeRoot(fileTreeRoot);
+    } catch {}
+  });
+
+  // --- Code Editor (US-011, US-012) ---
+  const editorContainer = document.getElementById("editor-container");
+  const editorArea = document.getElementById("editor-area");
+  const editorFilename = document.getElementById("editor-filename");
+  const editorLang = document.getElementById("editor-lang");
+  const editorPosition = document.getElementById("editor-position");
+  const editorSaveStatus = document.getElementById("editor-save-status");
+  const editorCloseBtn = document.getElementById("editor-close-btn");
+
+  let editorView = null;
+  let editorFilePath = null;
+  let editorSaveTimer = null;
+  let editorDirty = false;
+
+  async function openFileInEditor(filePath, fileName) {
+    try {
+      const r = await fetch(`/api/fs/read?path=${encodeURIComponent(filePath)}`);
+      const d = await r.json();
+
+      if (d.tooLarge) {
+        alert(`File too large (${formatFileSize(d.size)}). Max 1MB for editing.`);
+        downloadEntry(filePath);
+        return;
+      }
+      if (d.binary) {
+        alert("Binary file — download only.");
+        downloadEntry(filePath);
+        return;
+      }
+
+      // Wait for editor module
+      const mod = window._editorModule;
+      if (!mod || !mod.loaded) {
+        alert("Editor is still loading. Please try again.");
+        return;
+      }
+
+      // Destroy previous editor
+      if (editorView) { editorView.destroy(); editorView = null; }
+      clearTimeout(editorSaveTimer);
+
+      editorFilePath = filePath;
+      editorDirty = false;
+      editorFilename.textContent = fileName;
+      editorFilename.title = filePath;
+      editorLang.textContent = mod.getLangName(fileName);
+      editorPosition.textContent = "1:1";
+      updateSaveStatus("saved");
+
+      // Show editor, hide terminal
+      terminalContainer.style.display = "none";
+      editorContainer.style.display = "flex";
+
+      const langExt = mod.getLangExtension(fileName);
+      const updateListener = mod.EditorView.updateListener.of((update) => {
+        if (update.docChanged) {
+          editorDirty = true;
+          updateSaveStatus("unsaved");
+          clearTimeout(editorSaveTimer);
+          editorSaveTimer = setTimeout(() => autoSave(), 1000);
+        }
+        if (update.selectionSet) {
+          const pos = update.state.selection.main.head;
+          const line = update.state.doc.lineAt(pos);
+          editorPosition.textContent = line.number + ":" + (pos - line.from + 1);
+        }
+      });
+
+      editorView = new mod.EditorView({
+        state: mod.EditorState.create({
+          doc: d.content,
+          extensions: [mod.basicSetup, mod.oneDark, ...langExt, updateListener],
+        }),
+        parent: editorArea,
+      });
+
+      editorView.focus();
+    } catch (e) {
+      alert("Failed to open file: " + e.message);
+    }
+  }
+
+  function updateSaveStatus(status, msg) {
+    editorSaveStatus.className = status;
+    if (status === "saved") editorSaveStatus.textContent = "\u2713 Saved";
+    else if (status === "saving") editorSaveStatus.textContent = "Saving...";
+    else if (status === "unsaved") editorSaveStatus.textContent = "\u25CF Unsaved";
+    else if (status === "error") editorSaveStatus.textContent = "\u2717 " + (msg || "Error");
+  }
+
+  async function autoSave() {
+    if (!editorView || !editorFilePath || !editorDirty) return;
+    updateSaveStatus("saving");
+    try {
+      const content = editorView.state.doc.toString();
+      const r = await fetch("/api/fs/write", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: editorFilePath, content }),
+      });
+      if (r.ok) {
+        editorDirty = false;
+        updateSaveStatus("saved");
+      } else {
+        const e = await r.json();
+        updateSaveStatus("error", e.error);
+      }
+    } catch (e) {
+      updateSaveStatus("error", e.message);
+    }
+  }
+
+  function closeEditor() {
+    if (editorDirty) {
+      if (!confirm("Unsaved changes will be lost. Close anyway?")) return;
+    }
+    clearTimeout(editorSaveTimer);
+    if (editorView) { editorView.destroy(); editorView = null; }
+    editorArea.innerHTML = "";
+    editorFilePath = null;
+    editorDirty = false;
+    editorContainer.style.display = "none";
+    terminalContainer.style.display = "block";
+    if (terminal) terminal.focus();
+  }
+
+  editorCloseBtn.addEventListener("click", closeEditor);
+
+  // Ctrl+S / Cmd+S to save
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "s" && editorContainer.style.display !== "none") {
+      e.preventDefault();
+      clearTimeout(editorSaveTimer);
+      autoSave();
+    }
+  });
+
+  // Refresh file tree when switching sessions
+  const origSwitchSession = switchSession;
+  // (switchSession already defined, we patch it to also refresh file tree)
 
   // --- Init ---
   // 应用保存的配色（更新 --bg CSS 变量）

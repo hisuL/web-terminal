@@ -1,0 +1,409 @@
+{
+  "version": 1,
+  "project": "File Browser & Code Editor",
+  "overview": "Add a file browser and code editor to web-terminal. The sidebar gets a new tab to switch between session list and file tree view. The file tree shows the current session's working directory with lazy-loaded expandable folders. Clicking a file opens a CodeMirror 6 editor replacing the terminal view, with syntax highlighting for common languages and auto-save. Full file management includes create, edit, delete, rename, upload (drag & drop + file picker), and download (single file or folder as zip).",
+  "goals": [
+    "Browse current session's working directory as a file tree in the sidebar",
+    "Open and edit text files with CodeMirror 6 and syntax highlighting",
+    "Auto-save edited files with visual feedback",
+    "Full file management: create, delete, rename files and folders",
+    "Upload files via drag-and-drop and file picker, download files and folders as zip",
+    "Toggle hidden files visibility, default hidden",
+    "Mobile-friendly: full functionality on both desktop and mobile"
+  ],
+  "nonGoals": [
+    "No git integration (commit, diff, etc.)",
+    "No multi-file tabs (one file open at a time)",
+    "No collaborative editing",
+    "No terminal-in-editor split view (editor replaces terminal, switch back to terminal)",
+    "No binary file editing (images, executables shown as download-only)"
+  ],
+  "successMetrics": [
+    "File tree loads and displays within 1 second for directories with < 200 entries",
+    "Editor opens a file with correct syntax highlighting within 500ms",
+    "Auto-save triggers within 1 second of last keystroke",
+    "Upload and download work for single files and folders (zip)",
+    "All features work on mobile viewport (390px width)"
+  ],
+  "openQuestions": [
+    "Should we show file size and modification time in the file tree?",
+    "Should there be a search/filter within the file tree?"
+  ],
+  "stack": {
+    "framework": "Vanilla JS (existing codebase)",
+    "hosting": "Self-hosted Node.js",
+    "database": "None",
+    "auth": "None",
+    "newDependencies": [
+      "codemirror 6 (via CDN)",
+      "archiver (npm, for zip download)",
+      "multer or busboy (npm, for file upload)"
+    ]
+  },
+  "routes": [
+    {
+      "path": "/",
+      "name": "Main App",
+      "purpose": "Single-page app — file browser added to sidebar, editor replaces terminal view"
+    }
+  ],
+  "uiNotes": [
+    "Sidebar has two tabs at top: 'Sessions' and 'Files', switching the sidebar content",
+    "File tree: folder icons, file icons, indentation for nesting, lazy-load on folder click",
+    "Hidden files toggle button in file tree header",
+    "Right-click or long-press context menu for: rename, delete, download, new file, new folder",
+    "Editor view: toolbar with filename, save status indicator, close button to return to terminal",
+    "Editor toolbar shows language name and line/column position",
+    "Auto-save indicator: 'Saving...', 'Saved', 'Unsaved changes'",
+    "Upload: drag-and-drop zone on file tree area + upload button in file tree header",
+    "Download folder: triggers zip generation on server, then browser download",
+    "File size limit: 1MB for editing, larger files shown as download-only",
+    "Mobile: sidebar file tree same as desktop, editor full-width replacing terminal"
+  ],
+  "dataModel": [],
+  "importFormat": {
+    "description": "Not applicable",
+    "example": {}
+  },
+  "rules": [
+    "File tree is per-session: shows the cwd of the active session's PTY process",
+    "Lazy loading: only load directory contents when user expands a folder",
+    "Default hidden: files starting with . are hidden, toggled via button",
+    "node_modules, .git, __pycache__ hidden by default (same toggle controls all)",
+    "File size limit: files > 1MB open as download-only, not in editor",
+    "Auto-save: debounce 1 second after last edit, then PUT to server",
+    "Syntax highlighting detection by file extension",
+    "Language map: .js/.jsx -> javascript, .ts/.tsx -> typescript, .py -> python, .go -> go, .rs -> rust, .json -> json, .yaml/.yml -> yaml, .md -> markdown, .sh/.bash -> shell, .html -> html, .css -> css, .sql -> sql, .toml -> toml, .xml -> xml",
+    "Upload via multipart form data, supports multiple files",
+    "Folder download: server creates zip archive on-the-fly via archiver, streams to client",
+    "Rename/delete require confirmation dialog",
+    "When switching sessions, file tree refreshes to new session's cwd",
+    "When editor is open, terminal is hidden; closing editor shows terminal again"
+  ],
+  "qualityGates": [
+    "node server.js starts without errors",
+    "Chrome DevTools UI test: sidebar tab switch between Sessions and Files",
+    "Chrome DevTools UI test: file tree renders and folder expand works",
+    "Chrome DevTools UI test: clicking file opens editor with content",
+    "Chrome DevTools UI test: editor close returns to terminal"
+  ],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Backend API: get session cwd",
+      "status": "done",
+      "dependsOn": [],
+      "description": "As a developer, I want an API endpoint to get the current working directory of a session's PTY process so the file tree knows which directory to show.",
+      "acceptanceCriteria": [
+        "Add GET /api/sessions/:id/cwd endpoint in server.js",
+        "Read cwd from the PTY process using /proc/<pid>/cwd readlink or lsof",
+        "Return JSON { cwd: '/path/to/dir' }",
+        "Example: session running in /home/user/project -> returns { cwd: '/home/user/project' }",
+        "Negative case: session not found -> 404 { error: 'Session not found' }"
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "Backend API: list directory contents",
+      "status": "done",
+      "dependsOn": [],
+      "description": "As a developer, I want an API to list directory contents with file metadata so the file tree can render entries.",
+      "acceptanceCriteria": [
+        "Add GET /api/fs/list?path=xxx&hidden=true|false endpoint",
+        "Return JSON { path: '/abs/path', entries: [{ name, type: 'file'|'directory', size, mtime }] }",
+        "Sort: directories first, then files, both alphabetically",
+        "When hidden=false (default): exclude files starting with . and directories named node_modules, .git, __pycache__, .next, dist, build",
+        "When hidden=true: include all entries",
+        "Example: list /home/user/project -> returns sorted entries with types and sizes",
+        "Negative case: path does not exist -> 404 { error: 'Directory not found' }",
+        "Negative case: path is a file, not directory -> 400 { error: 'Not a directory' }"
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Backend API: read file content",
+      "status": "done",
+      "dependsOn": [],
+      "description": "As a developer, I want an API to read file contents so the editor can display them.",
+      "acceptanceCriteria": [
+        "Add GET /api/fs/read?path=xxx endpoint",
+        "Return JSON { path, content, size, mtime }",
+        "If file size > 1MB, return { path, size, mtime, tooLarge: true } without content field",
+        "Detect binary files (check for null bytes in first 8KB), return { path, size, binary: true }",
+        "Example: read /home/user/project/index.js -> returns file content as string",
+        "Negative case: file not found -> 404",
+        "Negative case: path is a directory -> 400"
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "Backend API: write file content",
+      "status": "done",
+      "dependsOn": [],
+      "description": "As a developer, I want an API to save file contents so the editor can auto-save.",
+      "acceptanceCriteria": [
+        "Add PUT /api/fs/write endpoint with JSON body { path, content }",
+        "Write content to file, create parent directories if needed (recursive mkdir)",
+        "Return JSON { ok: true, size, mtime }",
+        "Reject if content length > 1MB -> 413 { error: 'File too large' }",
+        "Example: write to /home/user/project/test.js -> file saved, returns size and mtime",
+        "Negative case: path is a directory -> 400",
+        "Negative case: permission denied -> 403"
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "Backend API: create, rename, delete files and folders",
+      "status": "done",
+      "dependsOn": [],
+      "description": "As a developer, I want APIs for file management operations so the UI can create, rename, and delete entries.",
+      "acceptanceCriteria": [
+        "Add POST /api/fs/create with { path, type: 'file'|'directory' } — creates empty file or mkdir",
+        "Add POST /api/fs/rename with { oldPath, newPath } — renames file or directory",
+        "Add DELETE /api/fs/delete with { path } — deletes file or directory (recursive for dirs)",
+        "All operations return { ok: true }",
+        "Example: create file /home/user/project/new.js -> empty file created",
+        "Example: rename /home/user/project/old.js to new.js -> file renamed",
+        "Example: delete /home/user/project/temp/ -> directory removed recursively",
+        "Negative case: create at existing path -> 409 { error: 'Already exists' }",
+        "Negative case: rename to existing path -> 409",
+        "Negative case: delete non-existent path -> 404"
+      ]
+    },
+    {
+      "id": "US-006",
+      "title": "Backend API: file upload (multipart)",
+      "status": "done",
+      "dependsOn": [],
+      "description": "As a developer, I want an upload API so users can upload files to the server.",
+      "acceptanceCriteria": [
+        "Install multer: npm install multer, add to package.json dependencies",
+        "Add POST /api/fs/upload endpoint accepting multipart/form-data",
+        "Form field 'dest' specifies target directory path",
+        "Support multiple file uploads in one request",
+        "Save uploaded files to the dest directory, preserving original filenames",
+        "Return JSON { ok: true, files: [{ name, size }] }",
+        "Example: upload 2 files to /home/user/project/ -> both saved, response lists them",
+        "Negative case: dest directory does not exist -> create it automatically",
+        "Negative case: file with same name exists -> overwrite"
+      ]
+    },
+    {
+      "id": "US-007",
+      "title": "Backend API: folder download as zip",
+      "status": "done",
+      "dependsOn": [],
+      "description": "As a developer, I want an API to download a folder as a zip archive.",
+      "acceptanceCriteria": [
+        "Install archiver: npm install archiver, add to package.json dependencies",
+        "Add GET /api/fs/download?path=xxx endpoint",
+        "If path is a file: stream file directly with Content-Disposition attachment header",
+        "If path is a directory: create zip archive on-the-fly using archiver, stream to client",
+        "Set appropriate Content-Type and Content-Disposition headers",
+        "Example: download /home/user/project/src/ -> streams src.zip containing all files",
+        "Example: download /home/user/project/index.js -> streams the file directly",
+        "Negative case: path not found -> 404"
+      ]
+    },
+    {
+      "id": "US-008",
+      "title": "Sidebar tab switching: Sessions vs Files",
+      "status": "done",
+      "dependsOn": [
+        "US-001",
+        "US-002"
+      ],
+      "description": "As a user, I want to switch between session list and file tree in the sidebar so I can manage both sessions and files.",
+      "acceptanceCriteria": [
+        "Add two tab buttons at top of sidebar: 'Sessions' and 'Files'",
+        "Clicking 'Sessions' shows the existing session list (current behavior)",
+        "Clicking 'Files' shows the file tree for the active session's cwd",
+        "Active tab has highlighted style, inactive tab is dimmed",
+        "Default tab is 'Sessions'",
+        "When switching to Files tab, fetch active session's cwd via GET /api/sessions/:id/cwd, then load root directory",
+        "When active session changes, if Files tab is active, refresh the file tree",
+        "Style tabs to match VS Code sidebar tab style (border-bottom indicator)",
+        "Example: click Files tab -> file tree loads for current session's directory",
+        "Negative case: no active session -> Files tab shows 'No active session' message"
+      ]
+    },
+    {
+      "id": "US-009",
+      "title": "File tree component with lazy loading",
+      "status": "done",
+      "dependsOn": [
+        "US-002",
+        "US-008"
+      ],
+      "description": "As a user, I want to see a file tree in the sidebar that lazy-loads folder contents so I can navigate the project structure.",
+      "acceptanceCriteria": [
+        "Render file tree in sidebar Files tab area",
+        "Show folder icon for directories, file icon for files (use unicode or simple CSS icons)",
+        "Indent nested items with consistent spacing (16px per level)",
+        "Click folder to expand/collapse, loads contents via /api/fs/list on first expand",
+        "Cache expanded folder contents, re-fetch on manual refresh",
+        "Show loading indicator while fetching directory contents",
+        "Hidden files toggle button in file tree header, persisted in localStorage",
+        "File tree header shows current directory path (truncated)",
+        "Click file to open in editor (calls editor open function from US-011)",
+        "Example: expand src/ folder -> loads and shows src/ contents indented",
+        "Negative case: empty directory -> shows '(empty)' placeholder"
+      ]
+    },
+    {
+      "id": "US-010",
+      "title": "File tree context menu: create, rename, delete",
+      "status": "done",
+      "dependsOn": [
+        "US-005",
+        "US-009"
+      ],
+      "description": "As a user, I want right-click context menu on file tree items for file management actions.",
+      "acceptanceCriteria": [
+        "Right-click (desktop) or long-press (mobile) on file/folder shows context menu",
+        "Menu items: New File, New Folder, Rename, Delete, Download",
+        "New File/Folder: shows inline input field in the tree for name entry",
+        "Rename: shows inline input with current name pre-filled",
+        "Delete: shows confirmation dialog before executing",
+        "Download: triggers /api/fs/download for the selected path",
+        "After create/rename/delete, refresh the parent directory in the tree",
+        "Context menu positioned near the clicked item, stays within viewport",
+        "Click outside context menu closes it",
+        "Example: right-click folder -> select New File -> type name -> file created, tree refreshed",
+        "Negative case: rename to empty name -> rejected, input stays open"
+      ]
+    },
+    {
+      "id": "US-011",
+      "title": "CodeMirror 6 editor integration",
+      "status": "done",
+      "dependsOn": [
+        "US-003",
+        "US-004"
+      ],
+      "description": "As a user, I want to open files in a code editor with syntax highlighting so I can view and edit code in the browser.",
+      "acceptanceCriteria": [
+        "Include CodeMirror 6 core and language packages via CDN (codemirror, @codemirror/lang-javascript, @codemirror/lang-python, @codemirror/lang-json, @codemirror/lang-markdown, @codemirror/lang-html, @codemirror/lang-css, @codemirror/lang-yaml, @codemirror/lang-xml, @codemirror/lang-sql)",
+        "Add oneDark theme from @codemirror/theme-one-dark for dark mode compatibility",
+        "When a file is clicked in the tree, fetch content via /api/fs/read",
+        "Hide terminal container, show editor container in its place",
+        "Detect language from file extension and apply correct syntax highlighting",
+        "Editor toolbar: filename display, language label, line:col position, save status, close button",
+        "Close button hides editor, shows terminal again, refocuses terminal",
+        "If file is > 1MB (tooLarge) or binary: show message with download button instead of editor",
+        "Example: click index.js -> editor opens with JavaScript highlighting",
+        "Example: click data.json -> editor opens with JSON highlighting",
+        "Negative case: click binary file -> shows 'Binary file, download only' with download button"
+      ]
+    },
+    {
+      "id": "US-012",
+      "title": "Editor auto-save with status indicator",
+      "status": "done",
+      "dependsOn": [
+        "US-011"
+      ],
+      "description": "As a user, I want my edits to auto-save so I don't lose changes.",
+      "acceptanceCriteria": [
+        "On editor content change, start a 1-second debounce timer",
+        "After debounce, PUT /api/fs/write with current content",
+        "Status indicator in editor toolbar: 'Unsaved' (yellow dot), 'Saving...' (spinner), 'Saved' (green check), 'Error' (red x with message)",
+        "If save fails, show error message and keep 'Unsaved' state",
+        "Track dirty state: warn user if closing editor with unsaved changes",
+        "Keyboard shortcut Ctrl+S / Cmd+S triggers immediate save (bypass debounce)",
+        "Example: type in editor -> 'Unsaved' appears -> 1s later -> 'Saving...' -> 'Saved'",
+        "Negative case: server returns error -> status shows 'Save failed: [message]', content preserved"
+      ]
+    },
+    {
+      "id": "US-013",
+      "title": "File upload: drag-and-drop and file picker",
+      "status": "done",
+      "dependsOn": [
+        "US-006",
+        "US-009"
+      ],
+      "description": "As a user, I want to upload files via drag-and-drop or file picker so I can add files to the project.",
+      "acceptanceCriteria": [
+        "Upload button in file tree header opens native file picker (multiple files allowed)",
+        "Drag files over the file tree area -> visual drop zone indicator appears",
+        "Drop files -> upload to currently expanded/selected directory via /api/fs/upload",
+        "Show upload progress or spinner during upload",
+        "After upload complete, refresh the target directory in file tree",
+        "Support uploading folders (if browser supports webkitdirectory)",
+        "Example: drag 3 files onto src/ folder -> files uploaded to src/, tree refreshed",
+        "Negative case: upload fails -> show error toast, tree not refreshed"
+      ]
+    },
+    {
+      "id": "US-014",
+      "title": "Folder download as zip",
+      "status": "done",
+      "dependsOn": [
+        "US-007",
+        "US-010"
+      ],
+      "description": "As a user, I want to download a folder as a zip file so I can export project files.",
+      "acceptanceCriteria": [
+        "Download option in context menu triggers zip download for folders, direct download for files",
+        "Browser starts download with appropriate filename (folder-name.zip or filename)",
+        "Show brief loading indicator in context menu or toast while zip is being generated",
+        "Example: right-click src/ -> Download -> browser downloads src.zip",
+        "Example: right-click index.js -> Download -> browser downloads index.js",
+        "Negative case: very large directory -> server streams zip, no timeout for reasonable sizes (< 100MB)"
+      ]
+    },
+    {
+      "id": "US-015",
+      "title": "Editor and file tree styles matching theme system",
+      "status": "done",
+      "dependsOn": [
+        "US-008",
+        "US-009",
+        "US-011"
+      ],
+      "description": "As a user, I want the file tree and editor to match my selected color theme.",
+      "acceptanceCriteria": [
+        "File tree uses CSS variables (--bg-sidebar, --text, --text-dim, --border, --bg-hover, --accent)",
+        "Editor uses CodeMirror oneDark theme adapted to match current CSS variables",
+        "Sidebar tabs styled consistently with existing sidebar header",
+        "Context menu styled with theme colors",
+        "Upload drop zone styled with theme accent color",
+        "All new UI elements adapt when theme is switched",
+        "Mobile responsive: file tree fills sidebar width, editor fills full viewport",
+        "Example: switch from VS Code Dark to Dracula -> file tree and editor colors update",
+        "Negative case: default theme (VS Code Dark) -> all elements render correctly"
+      ]
+    },
+    {
+      "id": "US-016",
+      "title": "End-to-end and UI testing",
+      "status": "done",
+      "dependsOn": [
+        "US-008",
+        "US-009",
+        "US-010",
+        "US-011",
+        "US-012",
+        "US-013",
+        "US-014",
+        "US-015"
+      ],
+      "description": "As a developer, I want automated tests to verify the file browser and editor work correctly.",
+      "acceptanceCriteria": [
+        "Server starts without errors with node server.js (including new dependencies)",
+        "Chrome DevTools test: sidebar shows Sessions and Files tabs",
+        "Chrome DevTools test: clicking Files tab loads file tree",
+        "Chrome DevTools test: expanding a folder shows child entries",
+        "Chrome DevTools test: clicking a .js file opens editor with content",
+        "Chrome DevTools test: close button returns to terminal view",
+        "Chrome DevTools test: hidden files toggle works",
+        "API test: GET /api/fs/list returns entries for valid directory",
+        "API test: GET /api/fs/read returns content for valid file",
+        "API test: PUT /api/fs/write saves content and returns ok",
+        "Example: full flow — Files tab -> expand folder -> click file -> edit -> auto-save -> close -> back to terminal",
+        "Negative case: API returns 404 for non-existent path"
+      ]
+    }
+  ]
+}

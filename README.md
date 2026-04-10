@@ -6,19 +6,23 @@
 
 ### Web 端
 
-| 主界面 | 通知面板 |
-|:---:|:---:|
-| <img src="screenshots/web-main.png" width="500"> | <img src="screenshots/web-notification.png" width="500"> |
-
-| 新建会话 — 目录选择 | 新建会话 — AI 工具选择 | tmux 会话管理 |
+| 主界面（Claude 会话） | 文件浏览器 | 代码编辑器 |
 |:---:|:---:|:---:|
-| <img src="screenshots/web-wizard-dir.png" width="350"> | <img src="screenshots/web-wizard-ai.png" width="350"> | <img src="screenshots/web-tmux.png" width="350"> |
+| <img src="screenshots/web-claude-terminal.png" width="350"> | <img src="screenshots/web-file-browser.png" width="350"> | <img src="screenshots/web-code-editor.png" width="350"> |
+
+| 通知面板 | 新建会话 — 目录选择 | 新建会话 — AI 工具选择 | tmux 会话管理 |
+|:---:|:---:|:---:|:---:|
+| <img src="screenshots/web-notification.png" width="280"> | <img src="screenshots/web-wizard-dir.png" width="280"> | <img src="screenshots/web-wizard-ai.png" width="280"> | <img src="screenshots/web-tmux.png" width="280"> |
 
 ### 手机端
 
-| 终端界面 | 侧边栏 + 通知呼吸灯 | 手机端快捷键栏 | 目录选择 | AI 工具选择 |
-|:---:|:---:|:---:|:---:|:---:|
-| <img src="screenshots/mobile-main.png" width="180"> | <img src="screenshots/mobile-sidebar.png" width="180"> | <img src="screenshots/mobile-shortcuts.png" width="180"> | <img src="screenshots/mobile-wizard-dir.png" width="180"> | <img src="screenshots/mobile-wizard-ai.png" width="180"> |
+| 终端界面 | 会话列表 | 文件浏览器 | 代码编辑器 |
+|:---:|:---:|:---:|:---:|
+| <img src="screenshots/mobile-claude-terminal.png" width="180"> | <img src="screenshots/mobile-sessions.png" width="180"> | <img src="screenshots/mobile-file-browser.png" width="180"> | <img src="screenshots/mobile-code-editor.png" width="180"> |
+
+| 通知呼吸灯 | 手机端快捷键栏 | 目录选择 | AI 工具选择 |
+|:---:|:---:|:---:|:---:|
+| <img src="screenshots/mobile-sidebar.png" width="180"> | <img src="screenshots/mobile-shortcuts.png" width="180"> | <img src="screenshots/mobile-wizard-dir.png" width="180"> | <img src="screenshots/mobile-wizard-ai.png" width="180"> |
 
 ## 功能特性
 
@@ -37,7 +41,16 @@
   - 点击通知自动跳转对应会话
   - 支持浏览器原生通知（页面后台时弹窗提醒）
   - 可选通知声音（支持开关）
-- **配色主题**：内置 8 套程序员主题（Tokyo Night、Dracula、Gruvbox、Nord、One Dark、Catppuccin、Solarized、Monokai）
+- **文件浏览器**：侧边栏 Files tab 查看当前会话工作目录
+  - 懒加载文件树，点击文件夹展开
+  - 隐藏文件切换（默认隐藏 node_modules、.git 等）
+  - 右键菜单：新建、重命名、删除、下载
+  - 拖拽上传文件，文件夹 zip 下载
+- **代码编辑器**：点击文件在浏览器内编辑
+  - CodeMirror 6 引擎，支持 JS/TS/Python/JSON/YAML/Markdown/HTML/CSS/SQL 等语法高亮
+  - 自动保存（1 秒防抖）+ Ctrl+S 手动保存
+  - 保存状态实时显示（Saved / Saving / Unsaved）
+- **配色主题**：内置 9 套主题（VS Code Dark、Tokyo Night、Dracula、Gruvbox、Nord、One Dark、Catppuccin、Solarized、Monokai）
 - **手机端优化**：惯性滚动、输入法自适应、防误触
 
 ## 系统要求

@@ -247,7 +247,7 @@ function getSessionList() {
 
 // --- Static Files ---
 app.use(express.static(path.join(__dirname, "public")));
-app.use(express.json());
+app.use(express.json({ limit: "2mb" }));
 
 // --- AI Shortcuts Proxy ---
 app.post("/api/ai-shortcuts", async (req, res) => {
@@ -376,6 +376,236 @@ app.post("/api/dirs", (req, res) => {
     res.json({ path: resolved });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// --- Session CWD (US-001) ---
+app.get("/api/sessions/:id/cwd", (req, res) => {
+  const session = sessions.get(req.params.id);
+  if (!session) return res.status(404).json({ error: "Session not found" });
+  try {
+    const pid = session.pty.pid;
+    const cwd = fs.readlinkSync(`/proc/${pid}/cwd`);
+    res.json({ cwd });
+  } catch (e) {
+    // Fallback: use the cwd from session creation
+    res.json({ cwd: process.env.HOME || "/tmp" });
+  }
+});
+
+// --- File System APIs (US-002 ~ US-007) ---
+const HIDDEN_DIRS = new Set(["node_modules", ".git", "__pycache__", ".next", "dist", "build", ".cache"]);
+
+// US-002: List directory
+app.get("/api/fs/list", (req, res) => {
+  const reqPath = req.query.path;
+  if (!reqPath) return res.status(400).json({ error: "path required" });
+  let resolved;
+  try { resolved = path.resolve(reqPath); } catch { return res.status(400).json({ error: "Invalid path" }); }
+
+  let stat;
+  try { stat = fs.statSync(resolved); } catch { return res.status(404).json({ error: "Directory not found" }); }
+  if (!stat.isDirectory()) return res.status(400).json({ error: "Not a directory" });
+
+  const showHidden = req.query.hidden === "true";
+  try {
+    const entries = fs.readdirSync(resolved, { withFileTypes: true });
+    const result = entries
+      .filter((e) => {
+        if (!showHidden) {
+          if (e.name.startsWith(".")) return false;
+          if (e.isDirectory() && HIDDEN_DIRS.has(e.name)) return false;
+        }
+        return true;
+      })
+      .map((e) => {
+        const fullPath = path.join(resolved, e.name);
+        let size = 0, mtime = null;
+        try {
+          const s = fs.statSync(fullPath);
+          size = s.size;
+          mtime = s.mtimeMs;
+        } catch {}
+        return { name: e.name, type: e.isDirectory() ? "directory" : "file", size, mtime };
+      })
+      .sort((a, b) => {
+        if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+    res.json({ path: resolved, entries: result });
+  } catch (e) {
+    res.status(403).json({ error: e.message });
+  }
+});
+
+// US-003: Read file
+app.get("/api/fs/read", (req, res) => {
+  const reqPath = req.query.path;
+  if (!reqPath) return res.status(400).json({ error: "path required" });
+  let resolved;
+  try { resolved = path.resolve(reqPath); } catch { return res.status(400).json({ error: "Invalid path" }); }
+
+  let stat;
+  try { stat = fs.statSync(resolved); } catch { return res.status(404).json({ error: "File not found" }); }
+  if (stat.isDirectory()) return res.status(400).json({ error: "Not a file" });
+
+  if (stat.size > 1024 * 1024) {
+    return res.json({ path: resolved, size: stat.size, mtime: stat.mtimeMs, tooLarge: true });
+  }
+
+  // Check for binary
+  try {
+    const buf = Buffer.alloc(8192);
+    const fd = fs.openSync(resolved, "r");
+    const bytesRead = fs.readSync(fd, buf, 0, 8192, 0);
+    fs.closeSync(fd);
+    for (let i = 0; i < bytesRead; i++) {
+      if (buf[i] === 0) {
+        return res.json({ path: resolved, size: stat.size, mtime: stat.mtimeMs, binary: true });
+      }
+    }
+  } catch {}
+
+  try {
+    const content = fs.readFileSync(resolved, "utf8");
+    res.json({ path: resolved, content, size: stat.size, mtime: stat.mtimeMs });
+  } catch (e) {
+    res.status(403).json({ error: e.message });
+  }
+});
+
+// US-004: Write file
+app.put("/api/fs/write", (req, res) => {
+  const { path: filePath, content } = req.body || {};
+  if (!filePath) return res.status(400).json({ error: "path required" });
+  if (typeof content !== "string") return res.status(400).json({ error: "content required" });
+  if (Buffer.byteLength(content) > 1024 * 1024) return res.status(413).json({ error: "File too large" });
+
+  let resolved;
+  try { resolved = path.resolve(filePath); } catch { return res.status(400).json({ error: "Invalid path" }); }
+
+  try {
+    const stat = fs.statSync(resolved);
+    if (stat.isDirectory()) return res.status(400).json({ error: "Path is a directory" });
+  } catch {}
+
+  try {
+    fs.mkdirSync(path.dirname(resolved), { recursive: true });
+    fs.writeFileSync(resolved, content, "utf8");
+    const stat = fs.statSync(resolved);
+    res.json({ ok: true, size: stat.size, mtime: stat.mtimeMs });
+  } catch (e) {
+    if (e.code === "EACCES") return res.status(403).json({ error: "Permission denied" });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// US-005: Create, rename, delete
+app.post("/api/fs/create", (req, res) => {
+  const { path: fsPath, type } = req.body || {};
+  if (!fsPath || !type) return res.status(400).json({ error: "path and type required" });
+  let resolved;
+  try { resolved = path.resolve(fsPath); } catch { return res.status(400).json({ error: "Invalid path" }); }
+
+  if (fs.existsSync(resolved)) return res.status(409).json({ error: "Already exists" });
+  try {
+    if (type === "directory") {
+      fs.mkdirSync(resolved, { recursive: true });
+    } else {
+      fs.mkdirSync(path.dirname(resolved), { recursive: true });
+      fs.writeFileSync(resolved, "", "utf8");
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/fs/rename", (req, res) => {
+  const { oldPath, newPath } = req.body || {};
+  if (!oldPath || !newPath) return res.status(400).json({ error: "oldPath and newPath required" });
+  let resolvedOld, resolvedNew;
+  try {
+    resolvedOld = path.resolve(oldPath);
+    resolvedNew = path.resolve(newPath);
+  } catch { return res.status(400).json({ error: "Invalid path" }); }
+
+  if (!fs.existsSync(resolvedOld)) return res.status(404).json({ error: "Source not found" });
+  if (fs.existsSync(resolvedNew)) return res.status(409).json({ error: "Destination already exists" });
+  try {
+    fs.renameSync(resolvedOld, resolvedNew);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete("/api/fs/delete", (req, res) => {
+  const { path: fsPath } = req.body || {};
+  if (!fsPath) return res.status(400).json({ error: "path required" });
+  let resolved;
+  try { resolved = path.resolve(fsPath); } catch { return res.status(400).json({ error: "Invalid path" }); }
+
+  if (!fs.existsSync(resolved)) return res.status(404).json({ error: "Not found" });
+  try {
+    fs.rmSync(resolved, { recursive: true, force: true });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// US-007: Download file or folder as zip
+app.get("/api/fs/download", (req, res) => {
+  const reqPath = req.query.path;
+  if (!reqPath) return res.status(400).json({ error: "path required" });
+  let resolved;
+  try { resolved = path.resolve(reqPath); } catch { return res.status(400).json({ error: "Invalid path" }); }
+
+  if (!fs.existsSync(resolved)) return res.status(404).json({ error: "Not found" });
+
+  const stat = fs.statSync(resolved);
+  if (!stat.isDirectory()) {
+    // Single file download
+    res.setHeader("Content-Disposition", `attachment; filename="${path.basename(resolved)}"`);
+    return fs.createReadStream(resolved).pipe(res);
+  }
+
+  // Directory zip download
+  try {
+    const archiver = require("archiver");
+    const zipName = path.basename(resolved) + ".zip";
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${zipName}"`);
+    const archive = archiver("zip", { zlib: { level: 5 } });
+    archive.on("error", (err) => res.status(500).json({ error: err.message }));
+    archive.pipe(res);
+    archive.directory(resolved, path.basename(resolved));
+    archive.finalize();
+  } catch (e) {
+    res.status(500).json({ error: "archiver not installed. Run: npm install archiver" });
+  }
+});
+
+// US-006: File upload
+app.post("/api/fs/upload", (req, res) => {
+  try {
+    const multer = require("multer");
+    const dest = req.query.dest || req.body?.dest || "/tmp";
+    const resolved = path.resolve(dest);
+    fs.mkdirSync(resolved, { recursive: true });
+    const upload = multer({ dest: resolved, preservePath: true });
+    upload.array("files")(req, res, (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      const files = (req.files || []).map((f) => {
+        const finalPath = path.join(resolved, f.originalname);
+        fs.renameSync(f.path, finalPath);
+        return { name: f.originalname, size: f.size };
+      });
+      res.json({ ok: true, files });
+    });
+  } catch (e) {
+    res.status(500).json({ error: "multer not installed. Run: npm install multer" });
   }
 });
 

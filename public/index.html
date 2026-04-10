@@ -14,12 +14,27 @@
 
     <!-- Sidebar -->
     <div id="sidebar">
-      <div id="sidebar-header">
-        <h1>Sessions</h1>
+      <div id="sidebar-tabs">
+        <button class="sidebar-tab active" data-tab="sessions">Sessions</button>
+        <button class="sidebar-tab" data-tab="files">Files</button>
       </div>
-      <div id="session-list"></div>
-      <button id="new-session-btn">+ New Session</button>
-      <button id="attach-btn">Attach tmux</button>
+      <div id="sidebar-panel-sessions" class="sidebar-panel">
+        <div id="session-list"></div>
+        <button id="new-session-btn">+ New Session</button>
+        <button id="attach-btn">Attach tmux</button>
+      </div>
+      <div id="sidebar-panel-files" class="sidebar-panel" style="display:none">
+        <div id="file-tree-header">
+          <span id="file-tree-path" title="">~/</span>
+          <div id="file-tree-actions">
+            <button id="file-tree-hidden-toggle" class="btn-icon" title="Show hidden files">&#128065;</button>
+            <button id="file-tree-upload-btn" class="btn-icon" title="Upload files">&#8679;</button>
+            <button id="file-tree-refresh-btn" class="btn-icon" title="Refresh">&#8635;</button>
+          </div>
+        </div>
+        <div id="file-tree"></div>
+        <input type="file" id="file-upload-input" multiple style="display:none">
+      </div>
     </div>
 
     <!-- Main -->
@@ -64,6 +79,18 @@
       </div>
 
       <div id="terminal-container" style="display:none"></div>
+
+      <!-- Code Editor -->
+      <div id="editor-container" style="display:none">
+        <div id="editor-toolbar">
+          <span id="editor-filename"></span>
+          <span id="editor-lang"></span>
+          <span id="editor-position"></span>
+          <span id="editor-save-status"></span>
+          <button id="editor-close-btn" class="btn-icon" title="Close editor">&times;</button>
+        </div>
+        <div id="editor-area"></div>
+      </div>
       <div id="copy-toast">Copied!</div>
 
       <div id="no-session">
@@ -112,6 +139,7 @@
   <script src="https://cdn.jsdelivr.net/npm/xterm@4.19.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.5.0/lib/xterm-addon-fit.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.6.0/lib/xterm-addon-web-links.min.js"></script>
+  <script src="editor.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
