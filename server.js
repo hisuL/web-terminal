@@ -162,22 +162,23 @@ function createSession(name, shell = process.env.SHELL || "bash", cwd, aiTool) {
         }
       }
 
-      // AI notification detection — skip if someone is actively watching this session
-      if (session.aiTool && session.clients.size === 0) {
+      // AI notification detection — notify when user is NOT watching this session
+      if (session.aiTool) {
         trackOutput(id, data.length);
-        resetIdleTimer(id);
 
-        const message = detectAiPattern(data, session.aiTool);
-        if (message && canNotify(id)) {
-          recordNotify(id);
-          broadcastNotification(id, session.name, session.aiTool, message);
+        if (session.clients.size === 0) {
+          resetIdleTimer(id);
+          const message = detectAiPattern(data, session.aiTool);
+          if (message && canNotify(id)) {
+            recordNotify(id);
+            broadcastNotification(id, session.name, session.aiTool, message);
+          } else {
+            startIdleTimer(id, session.name, session.aiTool);
+          }
         } else {
-          // No pattern or debounced — start idle timer
-          startIdleTimer(id, session.name, session.aiTool);
+          // User is watching — clear any pending idle timer
+          resetIdleTimer(id);
         }
-      } else if (session.aiTool && session.clients.size > 0) {
-        // User is watching — clear any pending idle timer
-        resetIdleTimer(id);
       }
     }
   });
