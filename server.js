@@ -769,6 +769,31 @@ app.post("/api/attach/tmux", (req, res) => {
   res.json({ id: session.id, name: session.name });
 });
 
+// Send a tmux copy-mode command (e.g. history-top, history-bottom)
+app.post("/api/tmux/send-command", (req, res) => {
+  const { sessionId, command } = req.body || {};
+  if (!sessionId || !command) return res.status(400).json({ error: "sessionId and command required" });
+
+  const allowed = ["history-top", "history-bottom", "page-up", "page-down",
+                    "halfpage-up", "halfpage-down", "scroll-up", "scroll-down",
+                    "top-line", "bottom-line", "cancel"];
+  if (!allowed.includes(command)) return res.status(400).json({ error: "command not allowed" });
+
+  const session = sessions.get(sessionId);
+  if (!session || !session.tmuxTarget) return res.status(404).json({ error: "tmux session not found" });
+
+  // Find the grouped session name from the session id
+  const groupName = `_wt_${sessionId}`;
+  try {
+    // Enter copy-mode first (no-op if already in copy-mode)
+    execSync(`tmux copy-mode -t '${groupName}' 2>/dev/null`);
+    execSync(`tmux send-keys -X -t '${groupName}' ${command} 2>/dev/null`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to execute tmux command" });
+  }
+});
+
 // --- WebSocket ---
 const lobbyClients = new Set();
 const wss = new WebSocketServer({ server });

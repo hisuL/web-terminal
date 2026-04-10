@@ -1490,6 +1490,16 @@
     setTimeout(() => sendRaw(cmdChar), 100);
   }
 
+  // tmux copy-mode 命令：通过服务端 API 直接执行，自动进入 copy-mode
+  function sendTmuxCopyCmd(command) {
+    if (!activeSessionId) return;
+    fetch("/api/tmux/send-command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: activeSessionId, command }),
+    }).catch(() => {});
+  }
+
   function makeBtn(label, desc, handler, extraClass) {
     const btn = document.createElement("button");
     btn.className = "shortcut-key-btn" + (extraClass ? " " + extraClass : "");
@@ -1565,11 +1575,11 @@
       // prefix+[ 进入 copy-mode
       shortcutFixedRow.appendChild(makeBtn("滚动", "进入 copy-mode (prefix+[)",
         () => sendTmuxCmd("["), "tmux-btn"));
-      // copy-mode 内置顶/置底（发送 Home/End 键，兼容 emacs 和 vi 模式）
-      shortcutFixedRow.appendChild(makeBtn("⤒", "置顶 (copy-mode: Home)",
-        () => sendRaw("\x1b[1~"), "tmux-btn"));
-      shortcutFixedRow.appendChild(makeBtn("⤓", "置底 (copy-mode: End)",
-        () => sendRaw("\x1b[4~"), "tmux-btn"));
+      // 置顶/置底：通过服务端 API 直接执行 tmux 命令，避免按键时序问题
+      shortcutFixedRow.appendChild(makeBtn("⤒", "置顶 (自动进入 copy-mode)",
+        () => sendTmuxCopyCmd("history-top"), "tmux-btn"));
+      shortcutFixedRow.appendChild(makeBtn("⤓", "置底 (自动进入 copy-mode)",
+        () => sendTmuxCopyCmd("history-bottom"), "tmux-btn"));
       // prefix+PageUp 上翻页
       shortcutFixedRow.appendChild(makeBtn("PgUp", "上翻页 (prefix+PageUp)",
         () => sendTmuxCmd("\x1b[5~"), "tmux-btn"));
