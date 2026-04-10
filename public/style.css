@@ -614,13 +614,13 @@ html, body {
   flex-direction: column;
 }
 
-/* Row 1: title (with menu toggle + status dot) */
-#toolbar-title-row {
+/* Row 1: action icons + menu toggle, left-aligned, compact */
+#toolbar-actions {
   display: flex;
   align-items: center;
-  padding: 4px 8px;
-  min-height: 28px;
-  gap: 6px;
+  gap: 2px;
+  padding: 4px 8px 0;
+  position: relative;
 }
 
 #menu-toggle {
@@ -634,6 +634,14 @@ html, body {
   flex-shrink: 0;
 }
 
+/* Row 2: title */
+#toolbar-title-row {
+  display: flex;
+  align-items: center;
+  padding: 2px 10px 4px;
+  gap: 6px;
+}
+
 /* Toolbar title — full name, no truncation */
 #toolbar-title {
   font-size: 13px;
@@ -642,15 +650,6 @@ html, body {
   color: var(--text);
   word-break: break-all;
   line-height: 1.3;
-}
-
-/* Row 2: action icons, left-aligned, compact */
-#toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 8px 4px;
-  position: relative;
 }
 
 /* Toolbar divider — separates button groups */
