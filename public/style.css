@@ -512,19 +512,17 @@ html, body {
   height: 16px;
 }
 
-/* Session list footer — expand/collapse toggle */
-#session-list-footer {
-  text-align: center;
-  padding: 2px 8px;
-}
+/* Expand/collapse toggle in sidebar tabs */
 #name-expand-btn {
   background: none;
   border: none;
   color: var(--text-dim);
   font-size: 11px;
   cursor: pointer;
-  padding: 2px 8px;
+  padding: 4px 8px;
+  margin-left: auto;
   transition: color 0.15s;
+  white-space: nowrap;
 }
 #name-expand-btn:hover {
   color: var(--accent);
@@ -606,18 +604,11 @@ html, body {
   background: var(--bg-sidebar);
   border-bottom: 1px solid var(--border);
   display: flex;
-  flex-direction: column;
-}
-
-#toolbar-row1 {
-  display: flex;
   align-items: center;
   padding: 0 8px;
-  height: 32px;
-}
-
-#toolbar-title-row {
-  padding: 0 10px 3px;
+  min-height: 36px;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 #menu-toggle {
@@ -630,12 +621,14 @@ html, body {
   padding: 4px 8px;
 }
 
-/* Toolbar title — full width, no truncation */
+/* Toolbar title — shows full name, wraps if needed */
 #toolbar-title {
   font-size: 13px;
   font-weight: 300;
   letter-spacing: 0.03em;
   color: var(--text);
+  flex: 1;
+  min-width: 0;
   word-break: break-all;
   line-height: 1.3;
 }
@@ -644,8 +637,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 2px;
-  flex: 1;
-  justify-content: flex-end;
+  flex-shrink: 0;
   position: relative;
 }
 
