@@ -1097,6 +1097,11 @@
       }
 
       if (!scrolling || e.touches.length !== 1 || !terminal) return;
+
+      // tmux 会话：不手动调用 scrollLines，让 xterm 原生将触摸事件
+      // 转为鼠标滚轮事件发给 tmux 处理，避免双重滚动导致内容错乱
+      if (isTmuxSession()) return;
+
       e.preventDefault(); // 阻止页面滚动，我们自己处理
 
       const y = e.touches[0].clientY;
@@ -1125,6 +1130,8 @@
 
       if (scrolling && e.touches.length === 0) {
         scrolling = false;
+        // tmux 会话不启动惯性滚动，由 tmux 自行处理
+        if (isTmuxSession()) return;
         // 抬手时如果有速度则启动惯性
         if (Math.abs(velocityY) > 0.05) {
           rafId = requestAnimationFrame(runInertia);
