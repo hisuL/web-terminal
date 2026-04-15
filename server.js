@@ -818,37 +818,105 @@ wss.on("connection", (ws, req) => {
     return;
   }
 
-  session.clients.add(ws);
   broadcastSessionList();
 
-  // Send scrollback as raw data
-  if (session.scrollback.length > 0) {
-    ws.send(session.scrollback.join(""));
-  }
+  // For tmux sessions, defer scrollback until after the first resize.
+  // Without this, the client receives the scrollback (captured at 80x24)
+  // AND the full redraw triggered by the resize — producing duplicate lines.
+  if (session.shell === "tmux") {
+    // Don't add to clients yet — prevent onData from sending real-time
+    // data that overlaps with the scrollback we're about to send.
+    let scrollbackSent = false;
 
-  ws.on("message", (raw) => {
-    const str = raw.toString();
-    // Control messages start with \x00
-    if (str[0] === CTRL_PREFIX) {
-      try {
-        const parsed = JSON.parse(str.slice(1));
-        if (parsed.type === "resize" && parsed.cols && parsed.rows) {
-          session.cols = parsed.cols;
-          session.rows = parsed.rows;
-          session.pty.resize(parsed.cols, parsed.rows);
-          return;
+    // Temporary message handler: wait for the first resize, then send
+    // scrollback and start forwarding real-time data.
+    const earlyHandler = (raw) => {
+      const str = raw.toString();
+      if (str[0] === CTRL_PREFIX && !scrollbackSent) {
+        try {
+          const parsed = JSON.parse(str.slice(1));
+          if (parsed.type === "resize" && parsed.cols && parsed.rows) {
+            session.cols = parsed.cols;
+            session.rows = parsed.rows;
+            session.pty.resize(parsed.cols, parsed.rows);
+
+            // Clear old scrollback captured at wrong size — tmux will
+            // send a fresh full redraw after the resize.
+            session.scrollback.length = 0;
+            scrollbackSent = true;
+
+            // Now add client so future onData frames go to it
+            session.clients.add(ws);
+            return;
+          }
+        } catch {}
+      }
+      // If scrollback has been sent, forward input normally
+      if (scrollbackSent) {
+        if (str[0] !== CTRL_PREFIX) {
+          session.pty.write(str);
+        } else {
+          try {
+            const parsed = JSON.parse(str.slice(1));
+            if (parsed.type === "resize" && parsed.cols && parsed.rows) {
+              session.cols = parsed.cols;
+              session.rows = parsed.rows;
+              session.pty.resize(parsed.cols, parsed.rows);
+            }
+          } catch {}
         }
-      } catch {}
-      return;
-    }
-    // Raw terminal input
-    session.pty.write(str);
-  });
+      }
+    };
+    ws.on("message", earlyHandler);
 
-  ws.on("close", () => {
-    session.clients.delete(ws);
-    broadcastSessionList();
-  });
+    // Safety: if no resize arrives within 500ms, fall back to sending
+    // scrollback immediately (e.g. if client doesn't send resize).
+    setTimeout(() => {
+      if (!scrollbackSent) {
+        scrollbackSent = true;
+        if (session.scrollback.length > 0) {
+          ws.send(session.scrollback.join(""));
+        }
+        session.clients.add(ws);
+      }
+    }, 500);
+
+    ws.on("close", () => {
+      session.clients.delete(ws);
+      broadcastSessionList();
+    });
+  } else {
+    // Non-tmux sessions: send scrollback immediately (original behavior)
+    session.clients.add(ws);
+
+    if (session.scrollback.length > 0) {
+      ws.send(session.scrollback.join(""));
+    }
+
+    ws.on("message", (raw) => {
+      const str = raw.toString();
+      // Control messages start with \x00
+      if (str[0] === CTRL_PREFIX) {
+        try {
+          const parsed = JSON.parse(str.slice(1));
+          if (parsed.type === "resize" && parsed.cols && parsed.rows) {
+            session.cols = parsed.cols;
+            session.rows = parsed.rows;
+            session.pty.resize(parsed.cols, parsed.rows);
+            return;
+          }
+        } catch {}
+        return;
+      }
+      // Raw terminal input
+      session.pty.write(str);
+    });
+
+    ws.on("close", () => {
+      session.clients.delete(ws);
+      broadcastSessionList();
+    });
+  }
 });
 
 // --- Start ---
