@@ -6,6 +6,8 @@ const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs");
 const { execSync } = require("child_process");
+const bcrypt = require("bcryptjs");
+const { getConfig, saveConfig, recordRecentDir, getTopRecentDirs } = require("./lib/config");
 
 const app = express();
 const server = http.createServer(app);
@@ -211,8 +213,116 @@ function getSessionList() {
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json({ limit: "2mb" }));
 
+// --- Auth helpers ---
+const TOKEN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+function validateToken(token) {
+  if (!token) return false;
+  const config = getConfig();
+  if (!config.passwordHash) return true; // no password set yet — allow
+  const tokens = config.authTokens || [];
+  const entry = tokens.find((t) => t.token === token);
+  if (!entry) return false;
+  return Date.now() - new Date(entry.createdAt).getTime() < TOKEN_MAX_AGE_MS;
+}
+
+function pruneExpiredTokens(config) {
+  if (!config.authTokens) return;
+  config.authTokens = config.authTokens.filter(
+    (t) => Date.now() - new Date(t.createdAt).getTime() < TOKEN_MAX_AGE_MS
+  );
+}
+
+function extractToken(req) {
+  const auth = req.headers.authorization || "";
+  if (auth.startsWith("Bearer ")) return auth.slice(7);
+  return null;
+}
+
+function authMiddleware(req, res, next) {
+  const config = getConfig();
+  if (!config.passwordHash) return next(); // no password set — allow all
+  const token = extractToken(req);
+  if (!validateToken(token)) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+  next();
+}
+
+// --- Auth API ---
+app.get("/api/auth/status", (req, res) => {
+  const config = getConfig();
+  const passwordSet = !!config.passwordHash;
+  const token = extractToken(req);
+  const authenticated = passwordSet ? validateToken(token) : false;
+  res.json({ passwordSet, authenticated });
+});
+
+app.post("/api/auth/setup", async (req, res) => {
+  const config = getConfig();
+  if (config.passwordHash) {
+    return res.status(409).json({ error: "Password already configured" });
+  }
+  const { password, confirmPassword } = req.body || {};
+  if (!password || password.length < 6) {
+    return res.status(400).json({ error: "Password must be at least 6 characters" });
+  }
+  if (password !== confirmPassword) {
+    return res.status(400).json({ error: "Passwords do not match" });
+  }
+  config.passwordHash = await bcrypt.hash(password, 10);
+  const token = crypto.randomUUID();
+  config.authTokens = [{ token, createdAt: new Date().toISOString() }];
+  saveConfig(config);
+  res.json({ token });
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  const config = getConfig();
+  if (!config.passwordHash) {
+    return res.status(400).json({ error: "Password not configured" });
+  }
+  const { password } = req.body || {};
+  const match = await bcrypt.compare(password || "", config.passwordHash);
+  if (!match) {
+    return res.status(401).json({ error: "Invalid password" });
+  }
+  pruneExpiredTokens(config);
+  const token = crypto.randomUUID();
+  if (!config.authTokens) config.authTokens = [];
+  config.authTokens.push({ token, createdAt: new Date().toISOString() });
+  saveConfig(config);
+  res.json({ token });
+});
+
+app.post("/api/auth/change-password", authMiddleware, async (req, res) => {
+  const config = getConfig();
+  const { oldPassword, newPassword, confirmPassword } = req.body || {};
+  const match = await bcrypt.compare(oldPassword || "", config.passwordHash);
+  if (!match) {
+    return res.status(401).json({ error: "Current password is incorrect" });
+  }
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: "Password must be at least 6 characters" });
+  }
+  if (newPassword !== confirmPassword) {
+    return res.status(400).json({ error: "Passwords do not match" });
+  }
+  config.passwordHash = await bcrypt.hash(newPassword, 10);
+  // Keep only the current caller's token
+  const callerToken = extractToken(req);
+  config.authTokens = (config.authTokens || []).filter((t) => t.token === callerToken);
+  saveConfig(config);
+  res.json({ success: true });
+});
+
+// --- Recent Dirs API ---
+app.get("/api/recent-dirs", authMiddleware, (req, res) => {
+  res.json(getTopRecentDirs(10));
+});
+
 // --- AI Shortcuts Proxy ---
-app.post("/api/ai-shortcuts", async (req, res) => {
+app.post("/api/ai-shortcuts", authMiddleware, async (req, res) => {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     return res.status(503).json({ error: "OPENROUTER_API_KEY not set on server" });
@@ -275,17 +385,19 @@ Prioritize shortcuts that are immediately actionable given the current terminal 
 });
 
 // --- REST API ---
-app.get("/api/config", (req, res) => {
+app.get("/api/config", authMiddleware, (req, res) => {
   res.json({ aiEnabled: !!process.env.OPENROUTER_API_KEY });
 });
 
-app.get("/api/sessions", (req, res) => {
+app.get("/api/sessions", authMiddleware, (req, res) => {
   res.json(getSessionList());
 });
 
-app.post("/api/sessions", (req, res) => {
+app.post("/api/sessions", authMiddleware, (req, res) => {
   const { name, shell, cwd, initCmd, aiTool } = req.body || {};
   const session = createSession(name, shell, cwd, aiTool);
+  // Record recent directory
+  if (cwd) recordRecentDir(cwd);
   // 如果指定了启动命令，在 PTY 启动后延迟发送
   if (initCmd) {
     setTimeout(() => {
@@ -297,7 +409,7 @@ app.post("/api/sessions", (req, res) => {
 });
 
 // --- Directory Browser API ---
-app.get("/api/dirs", (req, res) => {
+app.get("/api/dirs", authMiddleware, (req, res) => {
   const reqPath = req.query.path || process.env.HOME || "/";
   let resolved;
   try {
@@ -329,7 +441,7 @@ app.get("/api/dirs", (req, res) => {
   }
 });
 
-app.post("/api/dirs", (req, res) => {
+app.post("/api/dirs", authMiddleware, (req, res) => {
   const { path: dirPath } = req.body || {};
   if (!dirPath) return res.status(400).json({ error: "path required" });
   try {
@@ -342,7 +454,7 @@ app.post("/api/dirs", (req, res) => {
 });
 
 // --- Session CWD (US-001) ---
-app.get("/api/sessions/:id/cwd", (req, res) => {
+app.get("/api/sessions/:id/cwd", authMiddleware, (req, res) => {
   const session = sessions.get(req.params.id);
   if (!session) return res.status(404).json({ error: "Session not found" });
 
@@ -369,7 +481,7 @@ app.get("/api/sessions/:id/cwd", (req, res) => {
 const HIDDEN_DIRS = new Set(["node_modules", ".git", "__pycache__", ".next", "dist", "build", ".cache"]);
 
 // US-002: List directory
-app.get("/api/fs/list", (req, res) => {
+app.get("/api/fs/list", authMiddleware, (req, res) => {
   const reqPath = req.query.path;
   if (!reqPath) return res.status(400).json({ error: "path required" });
   let resolved;
@@ -411,7 +523,7 @@ app.get("/api/fs/list", (req, res) => {
 });
 
 // US-003: Read file
-app.get("/api/fs/read", (req, res) => {
+app.get("/api/fs/read", authMiddleware, (req, res) => {
   const reqPath = req.query.path;
   if (!reqPath) return res.status(400).json({ error: "path required" });
   let resolved;
@@ -447,7 +559,7 @@ app.get("/api/fs/read", (req, res) => {
 });
 
 // US-004: Write file
-app.put("/api/fs/write", (req, res) => {
+app.put("/api/fs/write", authMiddleware, (req, res) => {
   const { path: filePath, content } = req.body || {};
   if (!filePath) return res.status(400).json({ error: "path required" });
   if (typeof content !== "string") return res.status(400).json({ error: "content required" });
@@ -473,7 +585,7 @@ app.put("/api/fs/write", (req, res) => {
 });
 
 // US-005: Create, rename, delete
-app.post("/api/fs/create", (req, res) => {
+app.post("/api/fs/create", authMiddleware, (req, res) => {
   const { path: fsPath, type } = req.body || {};
   if (!fsPath || !type) return res.status(400).json({ error: "path and type required" });
   let resolved;
@@ -493,7 +605,7 @@ app.post("/api/fs/create", (req, res) => {
   }
 });
 
-app.post("/api/fs/rename", (req, res) => {
+app.post("/api/fs/rename", authMiddleware, (req, res) => {
   const { oldPath, newPath } = req.body || {};
   if (!oldPath || !newPath) return res.status(400).json({ error: "oldPath and newPath required" });
   let resolvedOld, resolvedNew;
@@ -512,7 +624,7 @@ app.post("/api/fs/rename", (req, res) => {
   }
 });
 
-app.delete("/api/fs/delete", (req, res) => {
+app.delete("/api/fs/delete", authMiddleware, (req, res) => {
   const { path: fsPath } = req.body || {};
   if (!fsPath) return res.status(400).json({ error: "path required" });
   let resolved;
@@ -528,7 +640,7 @@ app.delete("/api/fs/delete", (req, res) => {
 });
 
 // US-007: Download file or folder as zip
-app.get("/api/fs/download", (req, res) => {
+app.get("/api/fs/download", authMiddleware, (req, res) => {
   const reqPath = req.query.path;
   if (!reqPath) return res.status(400).json({ error: "path required" });
   let resolved;
@@ -560,7 +672,7 @@ app.get("/api/fs/download", (req, res) => {
 });
 
 // US-006: File upload
-app.post("/api/fs/upload", (req, res) => {
+app.post("/api/fs/upload", authMiddleware, (req, res) => {
   try {
     const multer = require("multer");
     const dest = req.query.dest || req.body?.dest || "/tmp";
@@ -581,7 +693,7 @@ app.post("/api/fs/upload", (req, res) => {
   }
 });
 
-app.delete("/api/sessions/:id", (req, res) => {
+app.delete("/api/sessions/:id", authMiddleware, (req, res) => {
   const session = sessions.get(req.params.id);
   if (!session) return res.status(404).json({ error: "Session not found" });
   session.pty.kill();
@@ -590,7 +702,7 @@ app.delete("/api/sessions/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-app.put("/api/sessions/:id", (req, res) => {
+app.put("/api/sessions/:id", authMiddleware, (req, res) => {
   const session = sessions.get(req.params.id);
   if (!session) return res.status(404).json({ error: "Session not found" });
   if (req.body.name) session.name = req.body.name;
@@ -632,12 +744,12 @@ function scanTmuxSessions() {
   return results;
 }
 
-app.get("/api/external", (req, res) => {
+app.get("/api/external", authMiddleware, (req, res) => {
   res.json(scanTmuxSessions());
 });
 
 // Attach to a tmux session window via a grouped session so each tab sees one window independently
-app.post("/api/attach/tmux", (req, res) => {
+app.post("/api/attach/tmux", authMiddleware, (req, res) => {
   const { session: tmuxSession, window: tmuxWindow } = req.body || {};
   if (!tmuxSession) return res.status(400).json({ error: "session required" });
 
@@ -757,11 +869,18 @@ app.post("/api/attach/tmux", (req, res) => {
 
   sessions.set(id, session);
   broadcastSessionList();
+
+  // Record tmux session's working directory for recent-dirs
+  try {
+    const tmuxCwd = execSync(`tmux display-message -t '${target}' -p '#{pane_current_path}' 2>/dev/null`).toString().trim();
+    if (tmuxCwd) recordRecentDir(tmuxCwd);
+  } catch {}
+
   res.json({ id: session.id, name: session.name });
 });
 
 // Send a tmux copy-mode command (e.g. history-top, history-bottom)
-app.post("/api/tmux/send-command", (req, res) => {
+app.post("/api/tmux/send-command", authMiddleware, (req, res) => {
   const { sessionId, command } = req.body || {};
   if (!sessionId || !command) return res.status(400).json({ error: "sessionId and command required" });
 
@@ -792,6 +911,15 @@ const wss = new WebSocketServer({ server });
 wss.on("connection", (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const sessionId = url.searchParams.get("session");
+  const wsToken = url.searchParams.get("token");
+
+  // WebSocket authentication
+  const config = getConfig();
+  if (config.passwordHash && !validateToken(wsToken)) {
+    sendCtrl(ws, { type: "error", data: "Authentication required" });
+    ws.close(4001, "Authentication required");
+    return;
+  }
 
   if (!sessionId) {
     lobbyClients.add(ws);

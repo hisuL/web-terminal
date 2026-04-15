@@ -1,0 +1,272 @@
+{
+  "version": 1,
+  "project": "Security Auth & Recent Directories",
+  "overview": "Add password-based access control to the web terminal and track recently used working directories for quick session creation. The security module ensures only authorized users can access the terminal via a password set on first visit, stored as a bcrypt hash on the server. The recent directories feature records the working directory each time a session is created or a tmux session is attached, and surfaces the last 10 unique paths in the session creation wizard.",
+  "goals": [
+    "Protect the web terminal with a password gate so unauthorized users cannot access any functionality",
+    "Persist authentication state in the browser for 30 days to avoid repeated password entry",
+    "Secure both HTTP API endpoints and WebSocket connections",
+    "Record working directory paths on every session creation and tmux attach",
+    "Display the 10 most recent unique directory paths in the session creation wizard for quick selection"
+  ],
+  "nonGoals": [
+    "Multi-user or role-based access control",
+    "OAuth or third-party authentication",
+    "Rate limiting or brute-force protection (can be added later)",
+    "Syncing recent directories across different server instances"
+  ],
+  "successMetrics": [
+    "First-time visitors are prompted to set a password before accessing any feature",
+    "Returning visitors on new browsers must enter the password to gain access",
+    "Same browser does not require re-authentication within 30 days",
+    "All HTTP endpoints and WebSocket connections reject unauthenticated requests",
+    "Recent directories list shows up to 10 entries in the session creation wizard",
+    "All quality gates pass: node -c server.js and npx playwright test"
+  ],
+  "openQuestions": [],
+  "stack": {
+    "framework": "Express.js (existing)",
+    "hosting": "Self-hosted Node.js",
+    "database": "Local JSON config files",
+    "auth": "bcrypt password hash stored in server-side JSON config, token-based auth via localStorage"
+  },
+  "routes": [
+    { "path": "POST /api/auth/setup", "name": "Setup Password", "purpose": "Set initial password (first-time only)" },
+    { "path": "POST /api/auth/login", "name": "Login", "purpose": "Verify password and return auth token" },
+    { "path": "GET /api/auth/status", "name": "Auth Status", "purpose": "Check if password is set and if current token is valid" },
+    { "path": "POST /api/auth/change-password", "name": "Change Password", "purpose": "Change password with old password verification" },
+    { "path": "GET /api/recent-dirs", "name": "Recent Dirs", "purpose": "Return the 10 most recent unique directory paths" }
+  ],
+  "uiNotes": [
+    "Auth overlay: full-screen modal overlay with centered card, blurred background, matching cyberpunk theme",
+    "Two modes for auth overlay: setup mode (password + confirm password + set button) and login mode (password + login button)",
+    "Change password: accessible from a settings icon in the toolbar, opens a modal with old/new/confirm fields",
+    "Recent dirs: shown as a clickable list above the directory browser in wizard step 0, with directory path and relative timestamp",
+    "Recent dirs list items should be single-click to select (same as directory browser behavior)"
+  ],
+  "dataModel": [
+    {
+      "entity": "Config (config.json)",
+      "fields": ["passwordHash (string, bcrypt)", "authTokens (array of {token, createdAt})"]
+    },
+    {
+      "entity": "RecentDirs (recent-dirs.json)",
+      "fields": ["entries (array of {path, timestamp}, max 50 stored, 10 displayed)"]
+    }
+  ],
+  "importFormat": {
+    "description": "Not applicable",
+    "example": {}
+  },
+  "rules": [
+    "Password must be at least 6 characters",
+    "Password is hashed with bcrypt (cost factor 10) before storage",
+    "Auth token is a crypto.randomUUID(), stored in localStorage on client and validated on server",
+    "Token expires 30 days after creation; server prunes expired tokens on each validation",
+    "If no password is set (config.json missing or empty passwordHash), show setup overlay",
+    "If password is set but no valid token in localStorage, show login overlay",
+    "All API endpoints except /api/auth/* require valid auth token in Authorization header",
+    "WebSocket connections require valid auth token as query parameter (?token=xxx)",
+    "Recent dirs are stored server-side in recent-dirs.json, shared across all browsers",
+    "Each session creation or tmux attach appends {path, timestamp} to recent-dirs.json",
+    "Duplicate paths update the timestamp instead of creating new entries",
+    "Recent dirs API returns the 10 most recently used unique paths, sorted by timestamp descending",
+    "Config files are stored in the project data directory (e.g., .web-terminal/ in project root or configurable)"
+  ],
+  "qualityGates": ["node -c server.js", "npx playwright test"],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Server-side config file infrastructure",
+      "status": "done",
+      "dependsOn": [],
+      "description": "As a developer, I want a config file module that reads/writes JSON config files so that the auth and recent-dirs features have persistent storage.",
+      "acceptanceCriteria": [
+        "Create a config module (e.g., lib/config.js) that manages reading/writing JSON files in a .web-terminal/ data directory",
+        "Data directory defaults to <project-root>/.web-terminal/ and is auto-created if missing",
+        "Provides getConfig()/saveConfig() for config.json and getRecentDirs()/saveRecentDirs() for recent-dirs.json",
+        "File writes are atomic (write to temp file, then rename) to prevent corruption",
+        "Example: getConfig() returns {} when config.json doesn't exist yet",
+        "Negative case: malformed JSON in config file is handled gracefully (returns defaults, logs warning)",
+        "Install bcryptjs: npm install bcryptjs",
+        "node -c server.js passes"
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "Password setup API endpoint",
+      "status": "done",
+      "dependsOn": ["US-001"],
+      "description": "As a first-time user, I want to set an access password so that subsequent visits require authentication.",
+      "acceptanceCriteria": [
+        "POST /api/auth/setup accepts { password, confirmPassword } in request body",
+        "Validates password >= 6 characters and password === confirmPassword",
+        "Rejects if a password is already set (returns 409 Conflict)",
+        "Hashes password with bcrypt (cost 10) and stores in config.json as passwordHash",
+        "Generates an auth token (crypto.randomUUID), stores it in config.json authTokens array with createdAt timestamp",
+        "Returns { token } on success",
+        "Example: POST with { password: 'mypass1', confirmPassword: 'mypass1' } → 200 { token: 'uuid...' }",
+        "Negative case: POST with { password: 'ab', confirmPassword: 'ab' } → 400 { error: 'Password must be at least 6 characters' }",
+        "Negative case: POST with { password: 'mypass1', confirmPassword: 'mypass2' } → 400 { error: 'Passwords do not match' }",
+        "Negative case: POST when password already set → 409 { error: 'Password already configured' }",
+        "node -c server.js passes"
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Login API endpoint",
+      "status": "done",
+      "dependsOn": ["US-001"],
+      "description": "As a returning user on a new browser, I want to enter my password to get an auth token so that I can access the terminal.",
+      "acceptanceCriteria": [
+        "POST /api/auth/login accepts { password } in request body",
+        "Compares password against stored bcrypt hash using bcryptjs.compare()",
+        "On success: generates new auth token, adds to authTokens array with createdAt, returns { token }",
+        "On failure: returns 401 { error: 'Invalid password' }",
+        "Prunes expired tokens (older than 30 days) from authTokens array on each login",
+        "Example: correct password → 200 { token: 'uuid...' }",
+        "Negative case: wrong password → 401 { error: 'Invalid password' }",
+        "Negative case: no password set yet → 400 { error: 'Password not configured' }",
+        "node -c server.js passes"
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "Auth status endpoint and auth middleware",
+      "status": "done",
+      "dependsOn": ["US-002", "US-003"],
+      "description": "As the frontend app, I need to check auth status on load and protect all other endpoints with auth middleware.",
+      "acceptanceCriteria": [
+        "GET /api/auth/status returns { passwordSet: boolean, authenticated: boolean }",
+        "Auth status checks Authorization header for 'Bearer <token>' and validates token against config.json authTokens",
+        "Expired tokens (older than 30 days) are treated as invalid",
+        "Auth middleware function rejects requests without valid token with 401 status",
+        "Auth middleware is applied to ALL existing API routes EXCEPT /api/auth/*",
+        "Example: GET /api/auth/status with valid token → { passwordSet: true, authenticated: true }",
+        "Example: GET /api/auth/status without token and password is set → { passwordSet: true, authenticated: false }",
+        "Example: GET /api/auth/status without token and no password → { passwordSet: false, authenticated: false }",
+        "Negative case: GET /api/sessions without token → 401 { error: 'Authentication required' }",
+        "node -c server.js passes"
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "WebSocket authentication",
+      "status": "done",
+      "dependsOn": ["US-004"],
+      "description": "As a security measure, I want WebSocket connections to require a valid auth token so that unauthenticated users cannot access terminal sessions.",
+      "acceptanceCriteria": [
+        "Both lobby WebSocket and terminal WebSocket connections require ?token=<authToken> query parameter",
+        "On connection, server validates the token against config.json authTokens",
+        "If token is missing or invalid, server sends an error control message and closes the WebSocket with code 4001",
+        "If no password is configured yet (first-time setup), WebSocket connections are allowed without token",
+        "Frontend passes the stored auth token in WebSocket URL: ws://host?session=<id>&token=<token>",
+        "Example: valid token in query → connection established normally",
+        "Negative case: no token in query when password is set → WebSocket closed with 4001",
+        "Negative case: expired token → WebSocket closed with 4001",
+        "node -c server.js passes"
+      ]
+    },
+    {
+      "id": "US-006",
+      "title": "Change password API endpoint",
+      "status": "done",
+      "dependsOn": ["US-004"],
+      "description": "As an authenticated user, I want to change my password so that I can maintain security.",
+      "acceptanceCriteria": [
+        "POST /api/auth/change-password accepts { oldPassword, newPassword, confirmPassword }",
+        "Requires valid auth token (uses auth middleware)",
+        "Verifies oldPassword against stored hash",
+        "Validates newPassword >= 6 characters and newPassword === confirmPassword",
+        "Updates passwordHash in config.json with new bcrypt hash",
+        "Invalidates all existing tokens except the current one",
+        "Returns { success: true }",
+        "Example: valid old password + valid new password → 200 { success: true }",
+        "Negative case: wrong old password → 401 { error: 'Current password is incorrect' }",
+        "Negative case: new password too short → 400 { error: 'Password must be at least 6 characters' }",
+        "node -c server.js passes"
+      ]
+    },
+    {
+      "id": "US-007",
+      "title": "Frontend auth overlay — setup and login UI",
+      "status": "done",
+      "dependsOn": ["US-004"],
+      "description": "As a user, I want to see a password setup or login screen when I'm not authenticated so that I can access the terminal securely.",
+      "acceptanceCriteria": [
+        "On app load, frontend calls GET /api/auth/status to determine auth state",
+        "If passwordSet is false: show full-screen overlay with 'Set Access Password' form (password + confirm password + submit button)",
+        "If passwordSet is true and authenticated is false: show full-screen overlay with 'Enter Password' form (password + submit button)",
+        "If authenticated is true: hide overlay, proceed to normal app",
+        "Auth overlay covers the entire page with a backdrop blur, styled to match the cyberpunk theme",
+        "Setup form: on submit, calls POST /api/auth/setup, stores returned token in localStorage as 'authToken', reloads app state",
+        "Login form: on submit, calls POST /api/auth/login, stores returned token in localStorage, reloads app state",
+        "Error messages are shown inline below the form (e.g., 'Passwords do not match', 'Invalid password')",
+        "Password fields have type='password' for masking",
+        "Example: first visit → setup overlay → set password → overlay disappears, app loads",
+        "Example: new browser → login overlay → enter password → overlay disappears",
+        "Negative case: wrong password → inline error message, form stays open",
+        "node -c server.js passes"
+      ]
+    },
+    {
+      "id": "US-008",
+      "title": "Frontend change password modal",
+      "status": "done",
+      "dependsOn": ["US-006", "US-007"],
+      "description": "As an authenticated user, I want a UI to change my password from the toolbar.",
+      "acceptanceCriteria": [
+        "Add a settings/lock icon button in the toolbar area",
+        "Clicking it opens a modal with fields: current password, new password, confirm new password",
+        "On submit, calls POST /api/auth/change-password with Authorization header",
+        "On success: shows success message, closes modal",
+        "On failure: shows inline error message",
+        "Modal is styled consistently with the existing cyberpunk theme and wizard modal",
+        "Example: change password successfully → success toast/message, modal closes",
+        "Negative case: wrong current password → inline error, modal stays open",
+        "node -c server.js passes"
+      ]
+    },
+    {
+      "id": "US-009",
+      "title": "Server-side recent directories tracking",
+      "status": "done",
+      "dependsOn": ["US-001", "US-004"],
+      "description": "As the system, I want to record the working directory each time a session is created or a tmux session is attached so that users can quickly revisit recent directories.",
+      "acceptanceCriteria": [
+        "On POST /api/sessions (create session): record the cwd from request body to recent-dirs.json",
+        "On POST /api/attach/tmux (attach tmux): record the tmux session's working directory to recent-dirs.json",
+        "For tmux attach, get working directory via tmux display-message -p '#{pane_current_path}' or similar",
+        "Each entry is { path: string, timestamp: ISO8601 string }",
+        "If the path already exists in the list, update its timestamp instead of adding a duplicate",
+        "Store up to 50 entries (to have history beyond the displayed 10)",
+        "GET /api/recent-dirs returns the 10 most recent unique entries sorted by timestamp descending",
+        "GET /api/recent-dirs requires auth middleware",
+        "Example: create session with cwd '/home/user/project-a' → entry added with current timestamp",
+        "Example: create another session with same cwd → timestamp updated, no duplicate entry",
+        "Negative case: create session without cwd (undefined) → no entry recorded",
+        "node -c server.js passes"
+      ]
+    },
+    {
+      "id": "US-010",
+      "title": "Frontend recent directories in session wizard",
+      "status": "done",
+      "dependsOn": ["US-009", "US-007"],
+      "description": "As a user, I want to see my recently used directories in the session creation wizard so that I can quickly select a familiar working directory.",
+      "acceptanceCriteria": [
+        "In wizard step 0 (directory selection), fetch GET /api/recent-dirs on wizard open",
+        "Display a 'Recent Directories' section above the directory browser tree",
+        "Show up to 10 entries with the directory path and a relative time label (e.g., '2 hours ago', 'yesterday')",
+        "Single-click on a recent dir entry selects it as the working directory (same behavior as clicking in the dir browser)",
+        "Selected recent dir is visually highlighted",
+        "If no recent dirs exist, the section is hidden (no empty state clutter)",
+        "Section styled consistently with existing wizard modal theme",
+        "Example: user sees '/home/user/project-a — 2 hours ago', clicks it → wizard.selectedDir is set, path bar updates",
+        "Negative case: fresh install with no history → recent dirs section not shown",
+        "node -c server.js passes",
+        "npx playwright test passes"
+      ]
+    }
+  ]
+}

@@ -17,6 +17,7 @@
     codex: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
     dirFolder: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>',
     refresh: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>',
+    history: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
   };
 
   // State
@@ -33,12 +34,31 @@
   const MIN_FONT_SIZE = 8;
   const MAX_FONT_SIZE = 32;
 
+  // --- Auth ---
+  function getAuthToken() {
+    return localStorage.getItem("authToken") || "";
+  }
+  function setAuthToken(token) {
+    localStorage.setItem("authToken", token);
+  }
+  function clearAuthToken() {
+    localStorage.removeItem("authToken");
+  }
+  function authHeaders() {
+    const token = getAuthToken();
+    return token ? { Authorization: "Bearer " + token } : {};
+  }
+  function authFetch(url, opts = {}) {
+    opts.headers = Object.assign({}, opts.headers || {}, authHeaders());
+    return fetch(url, opts);
+  }
+
   // --- Color Themes ---
   const COLOR_THEMES = [
     {
       id: "cyber-hud", name: "Cyber HUD",
       bg: "#080c14",
-      ui: { bgSidebar: "#0a0f18", bgHover: "#131a27", bgActive: "#1a2744", text: "#c8d6e5", textDim: "#4a5568", accent: "#22d3ee", danger: "#f85149", success: "#2ea043", border: "rgba(56,189,248,0.1)", warning: "#d29922" },
+      ui: { bgSidebar: "#0a0f18", bgHover: "#131a27", bgActive: "#1a2744", text: "#c8d6e5", textDim: "#8899aa", accent: "#22d3ee", danger: "#f85149", success: "#2ea043", border: "rgba(56,189,248,0.25)", warning: "#d29922" },
       theme: {
         background: "#080c14", foreground: "#c8d6e5", cursor: "#22d3ee",
         selectionBackground: "#1a2744",
@@ -277,7 +297,8 @@
 
   function connectLobby() {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    lobbyWs = new WebSocket(`${proto}//${location.host}`);
+    const lobbyToken = getAuthToken();
+    lobbyWs = new WebSocket(`${proto}//${location.host}${lobbyToken ? "?token=" + encodeURIComponent(lobbyToken) : ""}`);
 
     lobbyWs.onmessage = (e) => {
       const parsed = parseMessage(e.data);
@@ -339,7 +360,7 @@
 
   // --- Session Actions ---
   async function createSession(name, cwd, initCmd, aiTool) {
-    const res = await fetch("/api/sessions", {
+    const res = await authFetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name || undefined, cwd: cwd || undefined, initCmd: initCmd || undefined, aiTool: aiTool || undefined }),
@@ -371,6 +392,7 @@
     wizard.selectedDir = null;
     wizard.aiTool = null;
     wizard.aiOpts = {};
+    if (terminal) terminal.blur();
     toggleSidebar(false);
     wizardModal.style.display = "flex";
     renderWizardStep();
@@ -412,16 +434,6 @@
     wizardBody.innerHTML = "";
     wizardBack.style.display = wizard.step > 0 ? "inline-flex" : "none";
 
-    // Step indicator
-    const dots = document.createElement("div");
-    dots.className = "wizard-step-indicator";
-    for (let i = 0; i < 2; i++) {
-      const d = document.createElement("div");
-      d.className = "wizard-step-dot" + (i < wizard.step ? " done" : i === wizard.step ? " active" : "");
-      dots.appendChild(d);
-    }
-    wizardBody.appendChild(dots);
-
     if (wizard.step === 0) {
       wizardTitle.textContent = "选择工作目录";
       wizardSkip.textContent = "跳过";
@@ -447,6 +459,79 @@
   // ---- Step 1: Directory Browser ----
   let dirBrowserPath = null; // current browse path
 
+  function timeAgo(isoStr) {
+    const diff = Date.now() - new Date(isoStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return mins + " min ago";
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + "h ago";
+    const days = Math.floor(hrs / 24);
+    if (days === 1) return "yesterday";
+    if (days < 30) return days + "d ago";
+    return Math.floor(days / 30) + "mo ago";
+  }
+
+  // --- Recent Dirs Modal ---
+  const recentDirsModal = document.getElementById("recent-dirs-modal");
+  const recentDirsList = document.getElementById("recent-dirs-list");
+  const recentDirsEmpty = document.getElementById("recent-dirs-empty");
+  const recentDirsClose = document.getElementById("recent-dirs-close");
+  const recentDirsCancel = document.getElementById("recent-dirs-cancel");
+  const recentDirsConfirm = document.getElementById("recent-dirs-confirm");
+  let recentDirsResolve = null;
+  let recentDirsSelected = null;
+
+  function closeRecentDirs() { recentDirsModal.style.display = "none"; recentDirsResolve = null; recentDirsSelected = null; }
+  recentDirsClose.addEventListener("click", closeRecentDirs);
+  recentDirsCancel.addEventListener("click", closeRecentDirs);
+  recentDirsModal.addEventListener("click", (e) => { if (e.target === recentDirsModal) closeRecentDirs(); });
+  recentDirsConfirm.addEventListener("click", () => {
+    if (recentDirsSelected && recentDirsResolve) {
+      const path = recentDirsSelected;
+      const cb = recentDirsResolve;
+      closeRecentDirs();
+      cb(path);
+    }
+  });
+
+  function openRecentDirsModal() {
+    return new Promise(async (resolve) => {
+      recentDirsResolve = resolve;
+      recentDirsSelected = null;
+      recentDirsConfirm.disabled = true;
+      recentDirsList.innerHTML = '<div style="padding:8px;color:var(--text-dim)">Loading...</div>';
+      recentDirsEmpty.style.display = "none";
+      recentDirsModal.style.display = "flex";
+
+      try {
+        const r = await authFetch("/api/recent-dirs");
+        const dirs = await r.json();
+        recentDirsList.innerHTML = "";
+        if (!Array.isArray(dirs) || dirs.length === 0) {
+          recentDirsEmpty.style.display = "block";
+          return;
+        }
+        dirs.forEach((d) => {
+          const item = document.createElement("div");
+          item.className = "recent-dir-item";
+          item.innerHTML = '<span class="dir-icon">' + SVG.dirFolder + '</span>'
+            + '<span class="recent-dir-path" title="' + escapeHtml(d.path) + '">' + escapeHtml(d.path) + '</span>'
+            + '<span class="recent-dir-time">' + timeAgo(d.timestamp) + '</span>';
+          item.addEventListener("click", () => {
+            recentDirsSelected = d.path;
+            recentDirsConfirm.disabled = false;
+            recentDirsList.querySelectorAll(".recent-dir-item").forEach((el) => el.classList.remove("selected"));
+            item.classList.add("selected");
+          });
+          recentDirsList.appendChild(item);
+        });
+      } catch {
+        recentDirsList.innerHTML = '<div style="padding:8px;color:var(--danger)">Failed to load</div>';
+      }
+    });
+  }
+
   async function renderDirStep() {
     const wrap = document.createElement("div");
     wrap.className = "dir-browser";
@@ -455,7 +540,7 @@
     // 初始路径
     if (!dirBrowserPath) {
       try {
-        const r = await fetch("/api/dirs");
+        const r = await authFetch("/api/dirs");
         const d = await r.json();
         dirBrowserPath = d.current;
       } catch { dirBrowserPath = "/"; }
@@ -469,7 +554,7 @@
 
     let data;
     try {
-      const r = await fetch("/api/dirs?path=" + encodeURIComponent(dirPath));
+      const r = await authFetch("/api/dirs?path=" + encodeURIComponent(dirPath));
       data = await r.json();
     } catch {
       wrap.innerHTML = '<span class="shortcut-error">加载失败</span>';
@@ -555,10 +640,14 @@
     hint.textContent = "单击选中目录 · 双击进入 · 未选则使用当前目录";
     wrap.appendChild(hint);
 
+    // 按钮行
+    const btnRow = document.createElement("div");
+    btnRow.style.cssText = "display:flex;gap:8px;flex-wrap:wrap";
+
     // 当前目录快速选中按钮
     const selectCurrentBtn = document.createElement("button");
     selectCurrentBtn.className = "btn-secondary";
-    selectCurrentBtn.style.cssText = "font-size:12px;padding:6px 12px;align-self:flex-start";
+    selectCurrentBtn.style.cssText = "font-size:12px;padding:6px 12px";
     selectCurrentBtn.textContent = "✓ 使用当前目录";
     selectCurrentBtn.addEventListener("click", () => {
       wizard.selectedDir = data.current;
@@ -568,7 +657,26 @@
       selectCurrentBtn.style.color = "var(--accent)";
       syncWizardNextBtn();
     });
-    wrap.appendChild(selectCurrentBtn);
+    btnRow.appendChild(selectCurrentBtn);
+
+    // 最近目录按钮
+    const recentBtn = document.createElement("button");
+    recentBtn.className = "btn-secondary";
+    recentBtn.style.cssText = "font-size:12px;padding:6px 12px;display:inline-flex;align-items:center;gap:4px";
+    recentBtn.innerHTML = SVG.history + '<span>最近目录</span>';
+    recentBtn.addEventListener("click", async () => {
+      const picked = await openRecentDirsModal();
+      if (picked) {
+        // 导航到选中的目录并设为选中
+        wizard.selectedDir = picked;
+        dirBrowserPath = picked;
+        loadDirBrowser(wrap, picked);
+        syncWizardNextBtn();
+      }
+    });
+    btnRow.appendChild(recentBtn);
+
+    wrap.appendChild(btnRow);
     if (wizard.selectedDir === data.current) {
       selectCurrentBtn.textContent = "✓ 已选：" + data.current.split("/").pop();
       selectCurrentBtn.style.borderColor = "var(--accent)";
@@ -588,7 +696,7 @@
       if (!name) return;
       const newPath = data.current.replace(/\/$/, "") + "/" + name;
       try {
-        const r = await fetch("/api/dirs", {
+        const r = await authFetch("/api/dirs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ path: newPath }),
@@ -923,7 +1031,8 @@
 
     // WebSocket
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    termWs = new WebSocket(`${proto}//${location.host}?session=${sessionId}`);
+    const termToken = getAuthToken();
+    termWs = new WebSocket(`${proto}//${location.host}?session=${sessionId}${termToken ? "&token=" + encodeURIComponent(termToken) : ""}`);
 
     statusDot.style.display = "block";
     statusDot.className = "connecting";
@@ -1293,6 +1402,7 @@
   const attachEmpty = document.getElementById("attach-empty");
 
   function openAttachModal() {
+    if (terminal) terminal.blur();
     attachModal.style.display = "flex";
     attachLoading.style.display = "block";
     attachContent.style.display = "none";
@@ -1306,7 +1416,7 @@
 
   async function scanExternal() {
     try {
-      const res = await fetch("/api/external");
+      const res = await authFetch("/api/external");
       const data = await res.json();
       renderAttachList(data);
     } catch {
@@ -1361,7 +1471,7 @@
   async function attachTmux(sessionName, windowIdx) {
     closeAttachModal();
     try {
-      const res = await fetch("/api/attach/tmux", {
+      const res = await authFetch("/api/attach/tmux", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session: sessionName, window: windowIdx }),
@@ -1500,7 +1610,7 @@
   // tmux copy-mode 命令：通过服务端 API 直接执行，自动进入 copy-mode
   function sendTmuxCopyCmd(command) {
     if (!activeSessionId) return;
-    fetch("/api/tmux/send-command", {
+    authFetch("/api/tmux/send-command", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessionId: activeSessionId, command }),
@@ -1785,7 +1895,7 @@
     shortcutRefreshBtn.classList.add("loading");
 
     try {
-      const resp = await fetch("/api/ai-shortcuts", {
+      const resp = await authFetch("/api/ai-shortcuts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ terminalText: termText }),
@@ -2352,7 +2462,7 @@
     if (!name || !name.trim()) return;
     const newPath = parentPath.replace(/\/$/, "") + "/" + name.trim();
     try {
-      const r = await fetch("/api/fs/create", {
+      const r = await authFetch("/api/fs/create", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: newPath, type }),
       });
@@ -2366,7 +2476,7 @@
     if (!newName || !newName.trim() || newName.trim() === entry.name) return;
     const newPath = parentPath.replace(/\/$/, "") + "/" + newName.trim();
     try {
-      const r = await fetch("/api/fs/rename", {
+      const r = await authFetch("/api/fs/rename", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ oldPath: filePath, newPath }),
       });
@@ -2378,7 +2488,7 @@
   async function deleteEntry(filePath, name) {
     if (!confirm(`Delete "${name}"?`)) return;
     try {
-      const r = await fetch("/api/fs/delete", {
+      const r = await authFetch("/api/fs/delete", {
         method: "DELETE", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: filePath }),
       });
@@ -2571,7 +2681,7 @@
     updateSaveStatus("saving");
     try {
       const content = editorView.state.doc.toString();
-      const r = await fetch("/api/fs/write", {
+      const r = await authFetch("/api/fs/write", {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: editorFilePath, content }),
       });
@@ -2619,32 +2729,150 @@
   const origSwitchSession = switchSession;
   // (switchSession already defined, we patch it to also refresh file tree)
 
-  // --- Init ---
-  // 应用保存的配色（更新 --bg CSS 变量）
-  applyTheme(currentThemeId);
-  connectLobby();
-  updateMainView();
+  // --- Auth UI ---
+  const authOverlay = document.getElementById("auth-overlay");
+  const authTitle = document.getElementById("auth-title");
+  const authSubtitle = document.getElementById("auth-subtitle");
+  const authFields = document.getElementById("auth-fields");
+  const authError = document.getElementById("auth-error");
+  const authForm = document.getElementById("auth-form");
+  const authSubmit = document.getElementById("auth-submit");
+  const changePwdBtn = document.getElementById("change-pwd-btn");
+  const chpwdModal = document.getElementById("chpwd-modal");
+  const chpwdForm = document.getElementById("chpwd-form");
+  const chpwdError = document.getElementById("chpwd-error");
+  const chpwdSuccess = document.getElementById("chpwd-success");
+  const chpwdClose = document.getElementById("chpwd-close");
 
-  // 获取服务端配置（AI 功能是否启用）
-  fetch("/api/config")
+  function showAuthOverlay(mode) {
+    authFields.innerHTML = "";
+    authError.style.display = "none";
+    if (mode === "setup") {
+      authTitle.textContent = "Set Access Password";
+      authSubtitle.textContent = "First time setup — choose a password to secure your terminal.";
+      authFields.innerHTML = '<label class="auth-label">Password<input type="password" id="auth-pw" class="auth-input" required minlength="6" autocomplete="new-password"></label>'
+        + '<label class="auth-label">Confirm Password<input type="password" id="auth-pw2" class="auth-input" required autocomplete="new-password"></label>';
+      authSubmit.textContent = "Set Password";
+    } else {
+      authTitle.textContent = "Web Terminal";
+      authSubtitle.textContent = "Enter your password to continue.";
+      authFields.innerHTML = '<label class="auth-label">Password<input type="password" id="auth-pw" class="auth-input" required autocomplete="current-password"></label>';
+      authSubmit.textContent = "Login";
+    }
+    authOverlay.style.display = "flex";
+    setTimeout(() => { const inp = document.getElementById("auth-pw"); if (inp) inp.focus(); }, 100);
+  }
+
+  authForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    authError.style.display = "none";
+    const pw = document.getElementById("auth-pw").value;
+    const pw2 = document.getElementById("auth-pw2");
+    const isSetup = !!pw2;
+    try {
+      const url = isSetup ? "/api/auth/setup" : "/api/auth/login";
+      const body = isSetup ? { password: pw, confirmPassword: pw2.value } : { password: pw };
+      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) {
+        authError.textContent = data.error || "Error";
+        authError.style.display = "block";
+        return;
+      }
+      setAuthToken(data.token);
+      authOverlay.style.display = "none";
+      bootApp();
+    } catch (err) {
+      authError.textContent = "Connection error";
+      authError.style.display = "block";
+    }
+  });
+
+  // Change password
+  if (changePwdBtn) {
+    changePwdBtn.addEventListener("click", () => {
+      chpwdModal.style.display = "flex";
+      chpwdForm.reset();
+      chpwdError.style.display = "none";
+      chpwdSuccess.style.display = "none";
+    });
+  }
+  if (chpwdClose) {
+    chpwdClose.addEventListener("click", () => { chpwdModal.style.display = "none"; });
+    chpwdModal.addEventListener("click", (e) => { if (e.target === chpwdModal) chpwdModal.style.display = "none"; });
+  }
+  chpwdForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    chpwdError.style.display = "none";
+    chpwdSuccess.style.display = "none";
+    const oldPw = document.getElementById("chpwd-old").value;
+    const newPw = document.getElementById("chpwd-new").value;
+    const confirmPw = document.getElementById("chpwd-confirm").value;
+    try {
+      const res = await authFetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oldPassword: oldPw, newPassword: newPw, confirmPassword: confirmPw }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        chpwdError.textContent = data.error || "Error";
+        chpwdError.style.display = "block";
+        return;
+      }
+      chpwdSuccess.style.display = "block";
+      setTimeout(() => { chpwdModal.style.display = "none"; }, 1500);
+    } catch {
+      chpwdError.textContent = "Connection error";
+      chpwdError.style.display = "block";
+    }
+  });
+
+  // --- App Boot ---
+  function bootApp() {
+    if (changePwdBtn) changePwdBtn.style.display = "";
+    connectLobby();
+    updateMainView();
+
+    authFetch("/api/config")
+      .then((r) => r.json())
+      .then((cfg) => {
+        aiEnabled = !!cfg.aiEnabled;
+        if (!aiEnabled) {
+          shortcutToggleBtn.style.display = "none";
+        }
+      })
+      .catch(() => { aiEnabled = false; });
+
+    authFetch("/api/sessions")
+      .then((r) => r.json())
+      .then((list) => {
+        sessions = list;
+        renderSessionList();
+        initialLoadDone = true;
+        if (list.length > 0) {
+          switchSession(list[0].id);
+        }
+      });
+  }
+
+  // --- Init ---
+  applyTheme(currentThemeId);
+
+  // Check auth status first
+  authFetch("/api/auth/status")
     .then((r) => r.json())
-    .then((cfg) => {
-      aiEnabled = !!cfg.aiEnabled;
-      // 若 AI 未启用，隐藏工具栏上的 AI 快捷键按钮
-      if (!aiEnabled) {
-        shortcutToggleBtn.style.display = "none";
+    .then((status) => {
+      if (!status.passwordSet) {
+        showAuthOverlay("setup");
+      } else if (!status.authenticated) {
+        showAuthOverlay("login");
+      } else {
+        bootApp();
       }
     })
-    .catch(() => { aiEnabled = false; });
-
-  fetch("/api/sessions")
-    .then((r) => r.json())
-    .then((list) => {
-      sessions = list;
-      renderSessionList();
-      initialLoadDone = true; // 之后 lobby 推送才允许更新列表
-      if (list.length > 0) {
-        switchSession(list[0].id);
-      }
+    .catch(() => {
+      // Server unreachable — try booting anyway
+      bootApp();
     });
 })();
