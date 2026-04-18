@@ -1216,6 +1216,33 @@ html, body {
 
 .ai-tool-none:hover, .ai-tool-none.selected { border-color: var(--text-dim); color: var(--text); }
 
+.wizard-dir-summary,
+.wizard-launch-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.02);
+}
+
+.wizard-dir-summary span,
+.wizard-launch-label,
+.wizard-launch-note {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.wizard-dir-summary strong,
+.wizard-launch-value {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.4;
+  word-break: break-all;
+}
+
 .ai-opts-section {
   display: none;
   flex-direction: column;
@@ -1889,13 +1916,34 @@ html, body {
   min-width: 0;
 }
 
-.notif-item-session {
-  font-size: 12px;
+.notif-item-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.notif-event-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: #fff;
   font-weight: 600;
-  color: var(--text);
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.notif-tool-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: capitalize;
+}
+.notif-project-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  opacity: 0.7;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100px;
 }
 
 .notif-item-msg {
@@ -1928,6 +1976,124 @@ html, body {
   font-size: 11px;
   padding: 4px 8px;
   font-family: var(--font-mono);
+}
+
+/* --- Notification Settings --- */
+.notif-settings-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+#notif-settings-projects {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.hook-project-item {
+  border-bottom: 1px solid var(--border);
+}
+.hook-project-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text);
+}
+.hook-project-header:hover {
+  background: var(--bg-hover);
+}
+.hook-project-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+.hook-tool-tags {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.hook-tool-tag {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.hook-tool-tag.claude {
+  background: rgba(139,92,246,0.2);
+  color: #a78bfa;
+}
+.hook-tool-tag.codex {
+  background: rgba(59,130,246,0.2);
+  color: #60a5fa;
+}
+.hook-expand-arrow {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-dim);
+  width: 12px;
+  text-align: center;
+}
+.hook-project-body {
+  padding: 0 12px 8px;
+}
+.hook-event-section {
+  margin-bottom: 6px;
+}
+.hook-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  padding-top: 4px;
+}
+.hook-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+.hook-toggle-label {
+  font-size: 11px;
+  color: var(--text);
+}
+.hook-toggle {
+  width: 32px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s, border-color 0.2s;
+  flex-shrink: 0;
+}
+.hook-toggle.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.hook-toggle-knob {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  transition: left 0.2s;
+}
+.hook-toggle.on .hook-toggle-knob {
+  left: 17px;
 }
 
 /* ============================================
@@ -2061,11 +2227,22 @@ html, body {
   display: flex;
   align-items: center;
 }
-.recent-dir-path {
+.recent-dir-body {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.recent-dir-path {
   text-decoration: underline;
   text-underline-offset: 2px;
+  word-break: break-all;
+}
+.recent-dir-launch {
+  color: var(--text-dim, #4a5568);
+  font-size: 11px;
+  line-height: 1.35;
   word-break: break-all;
 }
 .recent-dir-time {

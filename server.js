@@ -7,7 +7,8 @@ const crypto = require("crypto");
 const fs = require("fs");
 const { execSync } = require("child_process");
 const bcrypt = require("bcryptjs");
-const { getConfig, saveConfig, recordRecentDir, getTopRecentDirs } = require("./lib/config");
+const { getConfig, saveConfig, recordRecentDir, recordRecentLaunch, getRecentDirEntry, getTopRecentDirs, initHookConfig, getHookConfig, getHookSettings, saveHookSettings, getProjectHookSettings, saveProjectHookSettings, getDefaultHookSettings } = require("./lib/config");
+const { syncProjectHooks, detectTools, readClaudeHooks, readCodexHooks, removeClaudeHooks, removeCodexHooks } = require("./lib/hook-injector");
 
 const app = express();
 const server = http.createServer(app);
@@ -23,65 +24,9 @@ function sendCtrl(ws, obj) {
   }
 }
 
-// --- AI Notification Detection ---
-const NOTIF_DEBOUNCE_MS = 5000;
-
-// Per-session notification state (keyed by session id)
-const notifState = new Map(); // { lastNotifTime, lastPatternMsg }
-
-// Strip ANSI escape sequences from terminal output
-function stripAnsi(str) {
-  return str.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "").replace(/\x1b[=>][^\n]*/g, "");
-}
-
-// Claude CLI patterns — confirmation / input / task complete
-const CLAUDE_PATTERNS = [
-  { regex: /\[Y\/n\]/i, message: "等待确认 [Y/n]" },
-  { regex: /\[y\/N\]/i, message: "等待确认 [y/N]" },
-  { regex: /Do you want to proceed/i, message: "等待确认" },
-  { regex: /waiting for your/i, message: "等待输入" },
-  { regex: /❯/, message: "任务完成，等待输入" },
-];
-
-// Codex CLI patterns
-const CODEX_PATTERNS = [
-  { regex: /\[a\/r\/d\]/i, message: "等待审批 [a/r/d]" },
-  { regex: /approve|reject/i, message: "等待审批" },
-];
-
-// Error patterns (shared)
-const ERROR_PATTERNS = [
-  { regex: /Error:/i, message: "检测到错误" },
-  { regex: /fatal:/i, message: "检测到致命错误" },
-  { regex: /panic:/i, message: "检测到 Panic" },
-];
-
-function detectAiPattern(data, aiTool) {
-  const cleaned = stripAnsi(data);
-  const patterns = aiTool === "claude" ? CLAUDE_PATTERNS : aiTool === "codex" ? CODEX_PATTERNS : [];
-  for (const p of patterns) {
-    if (p.regex.test(cleaned)) return p.message;
-  }
-  for (const p of ERROR_PATTERNS) {
-    if (p.regex.test(cleaned)) return p.message;
-  }
-  return null;
-}
-
-function canNotify(sessionId) {
-  const state = notifState.get(sessionId);
-  if (!state || !state.lastNotifTime) return true;
-  return Date.now() - state.lastNotifTime >= NOTIF_DEBOUNCE_MS;
-}
-
-function recordNotify(sessionId) {
-  const state = notifState.get(sessionId) || {};
-  state.lastNotifTime = Date.now();
-  notifState.set(sessionId, state);
-}
-
-function broadcastNotification(sessionId, sessionName, aiTool, message) {
-  const msg = { type: "notification", sessionId, sessionName, aiTool, message, time: Date.now() };
+// --- Notification broadcast (used by /api/notify) ---
+function broadcastNotification(notif) {
+  const msg = { type: "notification", ...notif, time: notif.timestamp ? new Date(notif.timestamp).getTime() : Date.now() };
   for (const client of lobbyClients) {
     sendCtrl(client, msg);
   }
@@ -94,6 +39,18 @@ function broadcastNotification(sessionId, sessionName, aiTool, message) {
 
 // --- Session Management ---
 const sessions = new Map();
+const MAX_SCROLLBACK_BYTES = 5 * 1024 * 1024;
+
+function trimScrollback(scrollback, maxBytes = MAX_SCROLLBACK_BYTES) {
+  let total = 0;
+  for (let i = scrollback.length - 1; i >= 0; i--) {
+    total += Buffer.byteLength(scrollback[i], "utf8");
+    if (total > maxBytes) {
+      scrollback.splice(0, i + 1);
+      return;
+    }
+  }
+}
 
 function createSession(name, shell = process.env.SHELL || "bash", cwd, aiTool) {
   const id = crypto.randomUUID().slice(0, 8);
@@ -109,14 +66,10 @@ function createSession(name, shell = process.env.SHELL || "bash", cwd, aiTool) {
   });
 
   const scrollback = [];
-  const MAX_SCROLLBACK = 50 * 1024;
 
   ptyProcess.onData((data) => {
     scrollback.push(data);
-    let total = scrollback.reduce((a, b) => a + b.length, 0);
-    while (total > MAX_SCROLLBACK && scrollback.length > 1) {
-      total -= scrollback.shift().length;
-    }
+    trimScrollback(scrollback);
 
     // Send raw terminal data directly — no JSON wrapping
     const session = sessions.get(id);
@@ -126,38 +79,12 @@ function createSession(name, shell = process.env.SHELL || "bash", cwd, aiTool) {
           client.send(data);
         }
       }
-
-      // AI notification detection — only when user is NOT watching
-      if (session.aiTool && session.clients.size === 0) {
-        const message = detectAiPattern(data, session.aiTool);
-        if (message) {
-          const st = notifState.get(id) || {};
-          // Only notify if this is a different message than last time
-          if (message !== st.lastPatternMsg && canNotify(id)) {
-            recordNotify(id);
-            st.lastPatternMsg = message;
-            notifState.set(id, st);
-            broadcastNotification(id, session.name, session.aiTool, message);
-          }
-        }
-      } else if (session.aiTool && session.clients.size > 0) {
-        // User is watching — reset so next leave can trigger fresh notifications
-        const st = notifState.get(id);
-        if (st) st.lastPatternMsg = null;
-      }
     }
   });
 
   ptyProcess.onExit(({ exitCode }) => {
     const session = sessions.get(id);
     if (session) {
-      notifState.delete(id);
-
-      // Broadcast exit notification for AI sessions
-      if (session.aiTool) {
-        broadcastNotification(id, session.name, session.aiTool, `Session ended (exit code: ${exitCode})`);
-      }
-
       for (const client of session.clients) {
         sendCtrl(client, { type: "exit", code: exitCode });
       }
@@ -173,6 +100,7 @@ function createSession(name, shell = process.env.SHELL || "bash", cwd, aiTool) {
     clients: new Set(),
     createdAt: Date.now(),
     shell,
+    cwd: cwd || process.env.HOME || "/tmp",
     aiTool: aiTool || null,
     scrollback,
     cols,
@@ -321,6 +249,194 @@ app.get("/api/recent-dirs", authMiddleware, (req, res) => {
   res.json(getTopRecentDirs(10));
 });
 
+app.get("/api/recent-dirs/lookup", authMiddleware, (req, res) => {
+  const dirPath = req.query.path;
+  if (!dirPath) return res.status(400).json({ error: "path required" });
+  const entry = getRecentDirEntry(dirPath);
+  res.json(entry || null);
+});
+
+// --- Hook Notification API (US-002) ---
+// This endpoint does NOT use authMiddleware — hook scripts authenticate via secret
+app.post("/api/notify", (req, res) => {
+  const { tool, event, cwd, message, secret, sessionId, notificationType, toolName, timestamp } = req.body || {};
+  if (!tool || !event || !message) {
+    return res.status(400).json({ error: "Missing required fields (tool, event, message)" });
+  }
+  const hookConfig = getHookConfig();
+  if (!hookConfig.secret || secret !== hookConfig.secret) {
+    return res.status(401).json({ error: "Invalid secret" });
+  }
+
+  // Match cwd to active session for sessionId/sessionName
+  // Get real-time cwd for each session
+  function getSessionRealCwd(s) {
+    if (s.tmuxTarget) {
+      try {
+        const groupName = `_wt_${s.id}`;
+        return execSync(`tmux display-message -t '${groupName}' -p '#{pane_current_path}' 2>/dev/null`).toString().trim() || s.cwd;
+      } catch { return s.cwd; }
+    }
+    try {
+      return fs.readlinkSync(`/proc/${s.pty.pid}/cwd`);
+    } catch { return s.cwd; }
+  }
+
+  const activeSessions = Array.from(sessions.values()).map(s => {
+    const realCwd = getSessionRealCwd(s);
+    return `${s.id}(${realCwd})`;
+  }).join(", ");
+  console.log(`[notify] event=${event} tool=${tool} cwd=${cwd} | active sessions: [${activeSessions || "none"}]`);
+
+  let matchedSessionId = null;
+  let matchedSessionName = null;
+  if (cwd) {
+    // Match: session's real cwd must equal or be a subdirectory of the notification cwd
+    let bestMatch = null;
+    let bestLen = 0;
+    for (const s of sessions.values()) {
+      const realCwd = getSessionRealCwd(s);
+      if (realCwd && (realCwd === cwd || realCwd.startsWith(cwd + "/"))) {
+        if (realCwd.length > bestLen) {
+          bestLen = realCwd.length;
+          bestMatch = s;
+        }
+      }
+    }
+    if (bestMatch) {
+      matchedSessionId = bestMatch.id;
+      matchedSessionName = bestMatch.name;
+      console.log(`[notify] matched session=${bestMatch.id} name=${bestMatch.name} → broadcasting`);
+    } else {
+      console.log(`[notify] no matching session for cwd=${cwd} → dropped`);
+      return res.json({ ok: true, dropped: true });
+    }
+  } else {
+    console.log(`[notify] no cwd provided → broadcasting to all`);
+  }
+
+  broadcastNotification({
+    tool,
+    event,
+    cwd: cwd || "",
+    message,
+    sessionId: matchedSessionId,
+    sessionName: matchedSessionName || tool,
+    notificationType: notificationType || null,
+    toolName: toolName || null,
+    timestamp: timestamp || new Date().toISOString(),
+  });
+
+  res.json({ ok: true });
+});
+
+// --- Hook Settings API (US-003) ---
+app.get("/api/hook-projects", authMiddleware, (req, res) => {
+  const settings = getHookSettings();
+  const projects = Object.entries(settings.projects || {}).map(([p, s]) => {
+    const tools = detectTools(p);
+    const claudeEvents = Object.entries(s.claude?.events || {}).filter(([, v]) => v).map(([k]) => k);
+    const codexEvents = Object.entries(s.codex?.events || {}).filter(([, v]) => v).map(([k]) => k);
+    return { path: p, claude: tools.claude, codex: tools.codex, events: { claude: claudeEvents, codex: codexEvents }, lastSynced: s.lastSynced };
+  });
+  res.json(projects);
+});
+
+app.get("/api/hook-settings/:encodedPath", authMiddleware, (req, res) => {
+  let projectPath;
+  try {
+    projectPath = Buffer.from(req.params.encodedPath, "base64").toString("utf8");
+  } catch {
+    return res.status(400).json({ error: "Invalid project path" });
+  }
+  const ps = getProjectHookSettings(projectPath);
+  if (!ps) {
+    return res.json(getDefaultHookSettings());
+  }
+  res.json(ps);
+});
+
+app.post("/api/hook-settings/:encodedPath", authMiddleware, (req, res) => {
+  let projectPath;
+  try {
+    projectPath = Buffer.from(req.params.encodedPath, "base64").toString("utf8");
+  } catch {
+    return res.status(400).json({ error: "Invalid project path" });
+  }
+  const { claude, codex } = req.body || {};
+  const existing = getProjectHookSettings(projectPath) || getDefaultHookSettings();
+  if (claude && claude.events) existing.claude.events = { ...existing.claude.events, ...claude.events };
+  if (codex && codex.events) existing.codex.events = { ...existing.codex.events, ...codex.events };
+  existing.lastSynced = new Date().toISOString();
+  saveProjectHookSettings(projectPath, existing);
+
+  // Sync to project config files
+  try {
+    syncProjectHooks(projectPath, existing);
+  } catch (e) {
+    console.error("[hook-settings] Sync failed:", e.message);
+    return res.json({ ok: true, syncError: e.message });
+  }
+  res.json({ ok: true });
+});
+
+app.post("/api/hook-sync/:encodedPath", authMiddleware, (req, res) => {
+  let projectPath;
+  try {
+    projectPath = Buffer.from(req.params.encodedPath, "base64").toString("utf8");
+  } catch {
+    return res.status(400).json({ error: "Invalid project path" });
+  }
+  const ps = getProjectHookSettings(projectPath) || getDefaultHookSettings();
+  try {
+    const tools = syncProjectHooks(projectPath, ps);
+    ps.lastSynced = new Date().toISOString();
+    saveProjectHookSettings(projectPath, ps);
+    res.json({ ok: true, tools });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/hook-detect/:encodedPath", authMiddleware, (req, res) => {
+  let projectPath;
+  try {
+    projectPath = Buffer.from(req.params.encodedPath, "base64").toString("utf8");
+  } catch {
+    return res.status(400).json({ error: "Invalid project path" });
+  }
+  res.json(detectTools(projectPath));
+});
+
+// --- Auto-inject hooks on session creation (US-006) ---
+function autoInjectHooks(cwd, aiTool) {
+  if (!cwd) return;
+  try {
+    const tools = detectTools(cwd);
+    // Also consider aiTool hint
+    if (aiTool === "claude") tools.claude = true;
+    if (aiTool === "codex") tools.codex = true;
+
+    if (!tools.claude && !tools.codex) return;
+
+    // Check if project already has settings (don't reset user customizations)
+    let ps = getProjectHookSettings(cwd);
+    if (!ps) {
+      ps = getDefaultHookSettings();
+      // Disable tools not detected
+      if (!tools.claude) ps.claude.events = {};
+      if (!tools.codex) ps.codex.events = {};
+      saveProjectHookSettings(cwd, ps);
+    }
+
+    syncProjectHooks(cwd, ps);
+    ps.lastSynced = new Date().toISOString();
+    saveProjectHookSettings(cwd, ps);
+  } catch (e) {
+    console.error("[auto-inject] Hook injection failed for", cwd, ":", e.message);
+  }
+}
+
 // --- AI Shortcuts Proxy ---
 app.post("/api/ai-shortcuts", authMiddleware, async (req, res) => {
   const apiKey = process.env.OPENROUTER_API_KEY;
@@ -394,10 +510,20 @@ app.get("/api/sessions", authMiddleware, (req, res) => {
 });
 
 app.post("/api/sessions", authMiddleware, (req, res) => {
-  const { name, shell, cwd, initCmd, aiTool } = req.body || {};
+  const { name, shell, cwd, initCmd, aiTool, launchMeta } = req.body || {};
   const session = createSession(name, shell, cwd, aiTool);
   // Record recent directory
   if (cwd) recordRecentDir(cwd);
+  if (cwd && (aiTool || initCmd || launchMeta)) {
+    recordRecentLaunch(cwd, {
+      aiTool: launchMeta?.aiTool || aiTool || null,
+      initCmd: launchMeta?.initCmd || initCmd || null,
+      opts: launchMeta?.opts || {},
+      sessionName: launchMeta?.sessionName || name || session.name,
+    });
+  }
+  // Auto-inject hooks (async, non-blocking)
+  setImmediate(() => autoInjectHooks(cwd, aiTool));
   // 如果指定了启动命令，在 PTY 启动后延迟发送
   if (initCmd) {
     setTimeout(() => {
@@ -696,9 +822,35 @@ app.post("/api/fs/upload", authMiddleware, (req, res) => {
 app.delete("/api/sessions/:id", authMiddleware, (req, res) => {
   const session = sessions.get(req.params.id);
   if (!session) return res.status(404).json({ error: "Session not found" });
+  const sessionCwd = session.cwd;
   session.pty.kill();
   sessions.delete(req.params.id);
   broadcastSessionList();
+
+  // After removing this session, check if any other session still uses the same cwd.
+  // If not, remove Web Terminal hooks from that project (only WT hooks, user hooks untouched).
+  if (sessionCwd) {
+    setImmediate(() => {
+      const stillActive = Array.from(sessions.values()).some((s) => {
+        if (!s.cwd) return false;
+        return s.cwd === sessionCwd || s.cwd.startsWith(sessionCwd + "/") || sessionCwd.startsWith(s.cwd + "/");
+      });
+      if (!stillActive) {
+        try { removeClaudeHooks(sessionCwd); } catch (e) { console.warn("[hook-cleanup] claude:", e.message); }
+        try { removeCodexHooks(sessionCwd); } catch (e) { console.warn("[hook-cleanup] codex:", e.message); }
+        // Remove from hook-settings.json so it no longer appears in notification settings UI
+        try {
+          const settings = getHookSettings();
+          if (settings.projects && settings.projects[sessionCwd]) {
+            delete settings.projects[sessionCwd];
+            saveHookSettings(settings);
+          }
+        } catch (e) { console.warn("[hook-cleanup] settings:", e.message); }
+        console.log(`[hook-cleanup] removed WT hooks and settings for ${sessionCwd}`);
+      }
+    });
+  }
+
   res.json({ ok: true });
 });
 
@@ -804,14 +956,10 @@ app.post("/api/attach/tmux", authMiddleware, (req, res) => {
   });
 
   const scrollback = [];
-  const MAX_SCROLLBACK = 50 * 1024;
 
   ptyProcess.onData((data) => {
     scrollback.push(data);
-    let total = scrollback.reduce((a, b) => a + b.length, 0);
-    while (total > MAX_SCROLLBACK && scrollback.length > 1) {
-      total -= scrollback.shift().length;
-    }
+    trimScrollback(scrollback);
     const session = sessions.get(id);
     if (session) {
       for (const client of session.clients) {
@@ -819,31 +967,12 @@ app.post("/api/attach/tmux", authMiddleware, (req, res) => {
           client.send(data);
         }
       }
-
-      // tmux AI notification — detect all AI patterns when no one is watching
-      if (session.clients.size === 0) {
-        // Check both claude and codex patterns since tmux can run anything
-        const message = detectAiPattern(data, "claude") || detectAiPattern(data, "codex");
-        if (message) {
-          const st = notifState.get(id) || {};
-          if (message !== st.lastPatternMsg && canNotify(id)) {
-            recordNotify(id);
-            st.lastPatternMsg = message;
-            notifState.set(id, st);
-            broadcastNotification(id, session.name, "tmux", message);
-          }
-        }
-      } else {
-        const st = notifState.get(id);
-        if (st) st.lastPatternMsg = null;
-      }
     }
   });
 
   ptyProcess.onExit(({ exitCode }) => {
     // Clean up grouped session
     try { execSync(`tmux kill-session -t '${groupSessionName}' 2>/dev/null`); } catch {}
-    notifState.delete(id);
     const session = sessions.get(id);
     if (session) {
       for (const client of session.clients) {
@@ -854,6 +983,12 @@ app.post("/api/attach/tmux", authMiddleware, (req, res) => {
     }
   });
 
+  // Get tmux cwd upfront for session object
+  let initialTmuxCwd = null;
+  try {
+    initialTmuxCwd = execSync(`tmux display-message -t '${target}' -p '#{pane_current_path}' 2>/dev/null`).toString().trim() || null;
+  } catch {}
+
   const session = {
     id,
     name,
@@ -861,6 +996,7 @@ app.post("/api/attach/tmux", authMiddleware, (req, res) => {
     clients: new Set(),
     createdAt: Date.now(),
     shell: "tmux",
+    cwd: initialTmuxCwd || process.env.HOME || "/tmp",
     tmuxTarget: target,
     scrollback,
     cols,
@@ -870,10 +1006,13 @@ app.post("/api/attach/tmux", authMiddleware, (req, res) => {
   sessions.set(id, session);
   broadcastSessionList();
 
-  // Record tmux session's working directory for recent-dirs
+  // Record tmux session's working directory for recent-dirs and auto-inject hooks
   try {
-    const tmuxCwd = execSync(`tmux display-message -t '${target}' -p '#{pane_current_path}' 2>/dev/null`).toString().trim();
-    if (tmuxCwd) recordRecentDir(tmuxCwd);
+    const tmuxCwd = initialTmuxCwd || execSync(`tmux display-message -t '${target}' -p '#{pane_current_path}' 2>/dev/null`).toString().trim();
+    if (tmuxCwd) {
+      recordRecentDir(tmuxCwd);
+      setImmediate(() => autoInjectHooks(tmuxCwd));
+    }
   } catch {}
 
   res.json({ id: session.id, name: session.name });
@@ -1014,9 +1153,11 @@ wss.on("connection", (ws, req) => {
       broadcastSessionList();
     });
   } else {
-    // Non-tmux sessions: send scrollback immediately (original behavior)
+    // Non-tmux sessions: keep the original immediate replay behavior.
+    // The tmux-specific delayed replay fixes duplicate redraws there, but
+    // applying the same timing to plain PTY sessions makes history restore
+    // depend on resize/reconnect ordering.
     session.clients.add(ws);
-
     if (session.scrollback.length > 0) {
       ws.send(session.scrollback.join(""));
     }
@@ -1051,6 +1192,11 @@ wss.on("connection", (ws, req) => {
 const PORT = process.env.PORT || 3456;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Web Terminal running at http://0.0.0.0:${PORT}`);
+  // Initialize hook config with server URL
+  try {
+    initHookConfig(`http://localhost:${PORT}`);
+  } catch (e) {
+    console.error("[hook-config] Failed to init:", e.message);
+  }
 });
 
-createSession("Default");

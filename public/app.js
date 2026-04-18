@@ -360,10 +360,17 @@
 
   // --- Session Actions ---
   async function createSession(name, cwd, initCmd, aiTool) {
+    const launchMeta = buildLaunchMeta(initCmd, aiTool);
     const res = await authFetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name || undefined, cwd: cwd || undefined, initCmd: initCmd || undefined, aiTool: aiTool || undefined }),
+      body: JSON.stringify({
+        name: name || undefined,
+        cwd: cwd || undefined,
+        initCmd: initCmd || undefined,
+        aiTool: aiTool || undefined,
+        launchMeta: launchMeta || undefined,
+      }),
     });
     const data = await res.json();
     switchSession(data.id);
@@ -385,13 +392,21 @@
     selectedDir: null, // string path or null
     aiTool: null,      // 'claude' | 'codex' | null
     aiOpts: {},        // { maxPermission, continueConv, ... }
+    lastLaunch: null,
+    autoFilledDir: null,
   };
+
+  function resetWizardLaunchSelection() {
+    wizard.aiTool = null;
+    wizard.aiOpts = {};
+    wizard.lastLaunch = null;
+    wizard.autoFilledDir = null;
+  }
 
   function openWizard() {
     wizard.step = 0;
     wizard.selectedDir = null;
-    wizard.aiTool = null;
-    wizard.aiOpts = {};
+    resetWizardLaunchSelection();
     if (terminal) terminal.blur();
     toggleSidebar(false);
     wizardModal.style.display = "flex";
@@ -409,6 +424,7 @@
     if (wizard.step === 0) {
       // 跳过目录选择，直接进入 AI 工具步骤
       wizard.selectedDir = null;
+      resetWizardLaunchSelection();
       wizard.step = 1;
       renderWizardStep();
     } else {
@@ -488,10 +504,10 @@
   recentDirsModal.addEventListener("click", (e) => { if (e.target === recentDirsModal) closeRecentDirs(); });
   recentDirsConfirm.addEventListener("click", () => {
     if (recentDirsSelected && recentDirsResolve) {
-      const path = recentDirsSelected;
+      const picked = recentDirsSelected;
       const cb = recentDirsResolve;
       closeRecentDirs();
-      cb(path);
+      cb(picked);
     }
   });
 
@@ -515,11 +531,15 @@
         dirs.forEach((d) => {
           const item = document.createElement("div");
           item.className = "recent-dir-item";
+          const launchSummary = formatLaunchSummary(d.lastLaunch);
           item.innerHTML = '<span class="dir-icon">' + SVG.dirFolder + '</span>'
+            + '<div class="recent-dir-body">'
             + '<span class="recent-dir-path" title="' + escapeHtml(d.path) + '">' + escapeHtml(d.path) + '</span>'
+            + (launchSummary ? '<span class="recent-dir-launch" title="' + escapeHtml(launchSummary) + '">最近启动: ' + escapeHtml(launchSummary) + '</span>' : "")
+            + '</div>'
             + '<span class="recent-dir-time">' + timeAgo(d.timestamp) + '</span>';
           item.addEventListener("click", () => {
-            recentDirsSelected = d.path;
+            recentDirsSelected = d;
             recentDirsConfirm.disabled = false;
             recentDirsList.querySelectorAll(".recent-dir-item").forEach((el) => el.classList.remove("selected"));
             item.classList.add("selected");
@@ -610,6 +630,7 @@
           clickTimer = null;
           // 选中/取消
           wizard.selectedDir = wizard.selectedDir === d.path ? null : d.path;
+          resetWizardLaunchSelection();
           wrap.querySelectorAll(".dir-item").forEach((el) => el.classList.remove("selected"));
           if (wizard.selectedDir) item.classList.add("selected");
           // 同步更新"使用当前目录"按钮状态
@@ -651,6 +672,7 @@
     selectCurrentBtn.textContent = "✓ 使用当前目录";
     selectCurrentBtn.addEventListener("click", () => {
       wizard.selectedDir = data.current;
+      resetWizardLaunchSelection();
       wrap.querySelectorAll(".dir-item").forEach((el) => el.classList.remove("selected"));
       selectCurrentBtn.textContent = "✓ 已选：" + data.current.split("/").pop();
       selectCurrentBtn.style.borderColor = "var(--accent)";
@@ -667,11 +689,11 @@
     recentBtn.addEventListener("click", async () => {
       const picked = await openRecentDirsModal();
       if (picked) {
-        // 导航到选中的目录并设为选中
-        wizard.selectedDir = picked;
-        dirBrowserPath = picked;
-        loadDirBrowser(wrap, picked);
-        syncWizardNextBtn();
+        wizard.selectedDir = picked.path;
+        wizard.lastLaunch = picked.lastLaunch || null;
+        wizard.autoFilledDir = null;
+        wizard.step = 1;
+        renderWizardStep();
       }
     });
     btnRow.appendChild(recentBtn);
@@ -704,6 +726,7 @@
         const res = await r.json();
         if (res.path) {
           wizard.selectedDir = res.path;
+          resetWizardLaunchSelection();
           loadDirBrowser(wrap, data.current);
         }
       } catch {}
@@ -719,10 +742,30 @@
     const wrap = document.createElement("div");
     wizardBody.appendChild(wrap);
 
+    if (wizard.selectedDir) {
+      ensureWizardLaunchMeta(wizard.selectedDir);
+    }
+
     const title = document.createElement("div");
     title.className = "wizard-section-title";
     title.textContent = "选择要启动的 AI 工具";
     wrap.appendChild(title);
+
+    if (wizard.selectedDir) {
+      const currentDir = document.createElement("div");
+      currentDir.className = "wizard-dir-summary";
+      currentDir.innerHTML = '<span>当前目录</span><strong>' + escapeHtml(wizard.selectedDir) + "</strong>";
+      wrap.appendChild(currentDir);
+    }
+
+    if (wizard.lastLaunch && formatLaunchSummary(wizard.lastLaunch)) {
+      const launchBox = document.createElement("div");
+      launchBox.className = "wizard-launch-hint";
+      launchBox.innerHTML = '<span class="wizard-launch-label">最近启动</span>'
+        + '<span class="wizard-launch-value">' + escapeHtml(formatLaunchSummary(wizard.lastLaunch)) + "</span>"
+        + '<span class="wizard-launch-note">已按最近命令自动预选</span>';
+      wrap.appendChild(launchBox);
+    }
 
     const grid = document.createElement("div");
     grid.className = "ai-tool-grid";
@@ -771,6 +814,54 @@
       container.innerHTML = "";
       renderAiStep();
     };
+  }
+
+  function formatLaunchSummary(launch) {
+    if (!launch || !launch.initCmd) return "";
+    return launch.initCmd;
+  }
+
+  function buildLaunchMeta(initCmd, aiTool) {
+    if (!aiTool && !initCmd) return null;
+    const toolOpts = aiTool ? (wizard.aiOpts[aiTool] || {}) : {};
+    return {
+      aiTool: aiTool || null,
+      initCmd: initCmd || null,
+      opts: { ...toolOpts },
+      sessionName: buildSessionName(),
+    };
+  }
+
+  function applyLaunchPreset(launch) {
+    if (!launch || !launch.aiTool) return;
+    wizard.aiTool = launch.aiTool;
+    wizard.aiOpts = {
+      ...wizard.aiOpts,
+      [launch.aiTool]: { ...(launch.opts || {}) },
+    };
+  }
+
+  async function ensureWizardLaunchMeta(dirPath) {
+    if (!dirPath) return;
+    if (wizard.autoFilledDir === dirPath) return;
+    let launch = wizard.lastLaunch;
+    if (!launch) {
+      try {
+        const r = await authFetch("/api/recent-dirs/lookup?path=" + encodeURIComponent(dirPath));
+        const entry = await r.json();
+        launch = entry?.lastLaunch || null;
+      } catch {
+        launch = null;
+      }
+    }
+    wizard.lastLaunch = launch;
+    wizard.autoFilledDir = dirPath;
+    if (launch && launch.aiTool) {
+      applyLaunchPreset(launch);
+    }
+    if (wizard.step === 1 && wizard.selectedDir === dirPath) {
+      renderWizardStep();
+    }
   }
 
   function renderClaudeOpts(container) {
@@ -825,9 +916,14 @@
 
     const opts = [
       {
+        key: "resumeLast",
+        label: "继续上次对话",
+        desc: "codex resume --last  继续当前目录最近一次会话",
+      },
+      {
         key: "fullAuto",
         label: "全自动模式",
-        desc: "--full-auto  自动执行，启用工作区写入沙箱",
+        desc: "--full-auto  自动执行，启用工作区写入沙箱（-a on-request + workspace-write）",
       },
       {
         key: "dangerouslyBypassApprovals",
@@ -835,13 +931,20 @@
         desc: "--dangerously-bypass-approvals-and-sandbox  跳过所有确认且无沙箱（谨慎使用）",
       },
       {
-        key: "quiet",
-        label: "静默模式",
-        desc: "--quiet  减少输出噪音",
+        key: "search",
+        label: "联网搜索",
+        desc: "--search  启用实时网络搜索工具",
+      },
+      {
+        key: "noAltScreen",
+        label: "内联模式",
+        desc: "--no-alt-screen  禁用交替屏，保留终端滚动历史（tmux 推荐）",
       },
     ];
 
     if (!wizard.aiOpts.codex) wizard.aiOpts.codex = {};
+
+    const cbMap = {};
 
     opts.forEach(({ key, label: lbl, desc }) => {
       const row = document.createElement("div");
@@ -850,13 +953,24 @@
       cb.type = "checkbox";
       cb.id = "codex-opt-" + key;
       cb.checked = !!wizard.aiOpts.codex[key];
-      cb.addEventListener("change", () => { wizard.aiOpts.codex[key] = cb.checked; });
+      cb.addEventListener("change", () => {
+        wizard.aiOpts.codex[key] = cb.checked;
+        // fullAuto 和 dangerouslyBypassApprovals 互斥
+        if (cb.checked && key === "fullAuto" && cbMap["dangerouslyBypassApprovals"]) {
+          cbMap["dangerouslyBypassApprovals"].checked = false;
+          wizard.aiOpts.codex["dangerouslyBypassApprovals"] = false;
+        }
+        if (cb.checked && key === "dangerouslyBypassApprovals" && cbMap["fullAuto"]) {
+          cbMap["fullAuto"].checked = false;
+          wizard.aiOpts.codex["fullAuto"] = false;
+        }
+      });
+      cbMap[key] = cb;
       const labelEl = document.createElement("label");
       labelEl.innerHTML = `${escapeHtml(lbl)}<span>${escapeHtml(desc)}</span>`;
       row.appendChild(cb);
       row.appendChild(labelEl);
-      const labelEl2 = labelEl; // avoid re-reference
-      labelEl2.addEventListener("click", () => { cb.checked = !cb.checked; cb.dispatchEvent(new Event("change")); });
+      labelEl.addEventListener("click", () => { cb.checked = !cb.checked; cb.dispatchEvent(new Event("change")); });
       container.appendChild(row);
     });
   }
@@ -873,10 +987,17 @@
     }
     if (wizard.aiTool === "codex") {
       const opts = wizard.aiOpts.codex || {};
+      // resume --last 是子命令，结构不同
+      if (opts.resumeLast) {
+        const args = ["codex", "resume", "--last"];
+        if (opts.noAltScreen) args.push("--no-alt-screen");
+        return args.join(" ");
+      }
       const args = ["codex"];
       if (opts.fullAuto) args.push("--full-auto");
       if (opts.dangerouslyBypassApprovals) args.push("--dangerously-bypass-approvals-and-sandbox");
-      if (opts.quiet) args.push("--quiet");
+      if (opts.search) args.push("--search");
+      if (opts.noAltScreen) args.push("--no-alt-screen");
       return args.join(" ");
     }
     return null;
@@ -900,7 +1021,7 @@
 
   async function closeSession(id) {
     if (!confirm("Close this session?")) return;
-    await fetch(`/api/sessions/${id}`, { method: "DELETE" });
+    await authFetch(`/api/sessions/${id}`, { method: "DELETE" });
     sessionFileTreeRoots.delete(id);
     sessionCwds.delete(id);
     if (id === activeSessionId) {
@@ -929,7 +1050,7 @@
     const finish = async () => {
       const newName = input.value.trim() || oldName;
       if (newName !== oldName) {
-        await fetch(`/api/sessions/${id}`, {
+        await authFetch(`/api/sessions/${id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: newName }),
@@ -1671,6 +1792,10 @@
     });
     shortcutFixedRow.appendChild(makeBtn("ESC", null, () => sendRaw("\x1b")));
 
+    if (!isTmuxSession()) {
+      shortcutFixedRow.appendChild(makeBtn("TAB", "补全 / 切换", () => sendRaw("\x09")));
+    }
+
     // 清空输入框（Ctrl+U）—— 紧跟 ESC
     shortcutFixedRow.appendChild(makeBtn("清空", "清空当前输入行（需确认）", () => {
       showConfirmPopup("清空当前输入行？", () => sendRaw("\x15"));
@@ -2032,6 +2157,25 @@
   // State management — dedup by server timestamp + sessionId
   const recentNotifKeys = new Set();
 
+  // Event type to Chinese label + color mapping
+  const EVENT_BADGE_MAP = {
+    "Notification": { label: "等待通知", color: "#d29922" },
+    "PermissionRequest": { label: "权限确认", color: "#f85149" },
+    "Stop": { label: "回合结束", color: "#2ea043" },
+    "TaskCompleted": { label: "任务完成", color: "#2ea043" },
+    "SubagentStop": { label: "子任务完成", color: "#569cd6" },
+    "PreToolUse": { label: "工具调用前", color: "#858585" },
+    "PostToolUse": { label: "工具调用后", color: "#858585" },
+    "SessionStart": { label: "会话开始", color: "#569cd6" },
+    "UserPromptSubmit": { label: "用户提交", color: "#858585" },
+    "notify:agent-turn-complete": { label: "回合完成", color: "#2ea043" },
+    "notify:approval-requested": { label: "等待审批", color: "#d29922" },
+  };
+
+  function getEventBadge(event) {
+    return EVENT_BADGE_MAP[event] || { label: event || "通知", color: "#858585" };
+  }
+
   function addNotification(data) {
     // Dedup: same sessionId + time means duplicate from lobby+session WS
     const dedupKey = `${data.sessionId}-${data.time}`;
@@ -2039,12 +2183,16 @@
     recentNotifKeys.add(dedupKey);
     // Clean old keys after 10s
     setTimeout(() => recentNotifKeys.delete(dedupKey), 10000);
+    // Focus filter: suppress notifications for the active session when page has focus
+    if (data.sessionId && data.sessionId === activeSessionId && document.hasFocus()) return;
 
     const notif = {
       id: ++notifIdCounter,
       sessionId: data.sessionId,
       sessionName: data.sessionName,
-      aiTool: data.aiTool,
+      tool: data.tool || data.aiTool || "terminal",
+      event: data.event || null,
+      cwd: data.cwd || null,
       message: data.message,
       time: data.time || Date.now(),
       read: false,
@@ -2125,17 +2273,23 @@
   function renderNotifList() {
     notifList.innerHTML = "";
     if (notifications.length === 0) {
-      notifList.innerHTML = '<div class="notif-empty">No notifications</div>';
+      notifList.innerHTML = '<div class="notif-empty">暂无通知</div>';
       return;
     }
     notifications.forEach((n) => {
       const item = document.createElement("div");
       item.className = "notif-item" + (n.read ? "" : " unread");
-      const notifIcon = n.aiTool === "claude" ? SVG.claude : n.aiTool === "codex" ? SVG.codex : SVG.bell;
+      const toolIcon = n.tool === "claude" ? SVG.claude : n.tool === "codex" ? SVG.codex : SVG.bell;
+      const badge = getEventBadge(n.event);
+      const projectName = n.cwd ? n.cwd.split("/").pop() : "";
       item.innerHTML = `
-        <span class="notif-item-icon">${notifIcon}</span>
+        <span class="notif-item-icon">${toolIcon}</span>
         <div class="notif-item-body">
-          <div class="notif-item-session">${escapeHtml(n.sessionName)}</div>
+          <div class="notif-item-header">
+            <span class="notif-event-badge" style="background:${badge.color}">${escapeHtml(badge.label)}</span>
+            <span class="notif-tool-label">${escapeHtml(n.tool)}</span>
+            ${projectName ? '<span class="notif-project-label">' + escapeHtml(projectName) + '</span>' : ''}
+          </div>
           <div class="notif-item-msg">${escapeHtml(n.message)}</div>
         </div>
         <span class="notif-item-time">${relativeTime(n.time)}</span>
@@ -2206,7 +2360,7 @@
     if (!document.hidden) return;
     if (!("Notification" in window) || Notification.permission !== "granted") return;
     try {
-      const title = `${notif.aiTool === "claude" ? "Claude" : notif.aiTool === "codex" ? "Codex" : "Terminal"} - ${notif.sessionName}`;
+      const title = `${notif.tool === "claude" ? "Claude" : notif.tool === "codex" ? "Codex" : "Terminal"} - ${notif.sessionName}`;
       const n = new Notification(title, { body: notif.message, tag: "web-terminal-" + notif.sessionId });
       n.onclick = () => {
         window.focus();
@@ -2219,6 +2373,189 @@
   setInterval(() => {
     if (notifPanelOpen) renderNotifList();
   }, 30000);
+
+  // --- Notification Settings (US-009) ---
+  const notifSettingsBtn = document.getElementById("notif-settings-btn");
+  const notifSettingsArea = document.getElementById("notif-settings-area");
+  const notifSettingsBack = document.getElementById("notif-settings-back");
+  const notifSettingsProjects = document.getElementById("notif-settings-projects");
+  let notifSettingsOpen = false;
+
+  const CLAUDE_EVENT_LABELS = {
+    Notification: "等待通知",
+    PermissionRequest: "权限确认",
+    Stop: "回合结束",
+    TaskCompleted: "任务完成",
+    SubagentStop: "子任务完成",
+    PreToolUse: "工具调用前",
+    PostToolUse: "工具调用后",
+  };
+  const CODEX_EVENT_LABELS = {
+    SessionStart: "会话开始",
+    PreToolUse: "工具调用前",
+    PostToolUse: "工具调用后",
+    UserPromptSubmit: "用户提交输入",
+    Stop: "回合结束",
+    notify: "回合完成通知（config.toml）",
+  };
+
+  function openNotifSettings() {
+    notifSettingsOpen = true;
+    notifList.style.display = "none";
+    document.querySelector(".notif-panel-footer").style.display = "none";
+    notifSettingsArea.style.display = "block";
+    loadNotifProjects();
+  }
+
+  function closeNotifSettings() {
+    notifSettingsOpen = false;
+    notifList.style.display = "";
+    document.querySelector(".notif-panel-footer").style.display = "";
+    notifSettingsArea.style.display = "none";
+  }
+
+  notifSettingsBtn.addEventListener("click", openNotifSettings);
+  notifSettingsBack.addEventListener("click", closeNotifSettings);
+
+  async function loadNotifProjects() {
+    notifSettingsProjects.innerHTML = '<div style="padding:8px;color:var(--text-dim);font-size:12px">加载中...</div>';
+    try {
+      const r = await authFetch("/api/hook-projects");
+      const projects = await r.json();
+      notifSettingsProjects.innerHTML = "";
+      if (!Array.isArray(projects) || projects.length === 0) {
+        notifSettingsProjects.innerHTML = '<div style="padding:12px;color:var(--text-dim);font-size:12px;text-align:center">暂无项目<br><span style="font-size:11px">创建会话后自动检测</span></div>';
+        return;
+      }
+      projects.forEach((p) => renderProjectSettings(p));
+    } catch (e) {
+      notifSettingsProjects.innerHTML = '<div style="padding:8px;color:var(--danger);font-size:12px">加载失败</div>';
+    }
+  }
+
+  function renderProjectSettings(project) {
+    const div = document.createElement("div");
+    div.className = "hook-project-item";
+
+    const header = document.createElement("div");
+    header.className = "hook-project-header";
+    const toolIcons = (project.claude ? '<span class="hook-tool-tag claude">Claude</span>' : '')
+      + (project.codex ? '<span class="hook-tool-tag codex">Codex</span>' : '');
+    header.innerHTML = '<span class="hook-project-path" title="' + escapeHtml(project.path) + '">' + escapeHtml(project.path.split("/").slice(-2).join("/")) + '</span>'
+      + '<span class="hook-tool-tags">' + toolIcons + '</span>'
+      + '<span class="hook-expand-arrow">▸</span>';
+
+    const body = document.createElement("div");
+    body.className = "hook-project-body";
+    body.style.display = "none";
+
+    let expanded = false;
+    header.addEventListener("click", async () => {
+      expanded = !expanded;
+      body.style.display = expanded ? "block" : "none";
+      header.querySelector(".hook-expand-arrow").textContent = expanded ? "▾" : "▸";
+      if (expanded && body.children.length === 0) {
+        await loadProjectEventToggles(project.path, body, project.claude, project.codex);
+      }
+    });
+
+    div.appendChild(header);
+    div.appendChild(body);
+    notifSettingsProjects.appendChild(div);
+  }
+
+  async function loadProjectEventToggles(projectPath, container, hasClaude, hasCodex) {
+    const encoded = btoa(projectPath);
+    container.innerHTML = '<div style="padding:4px;color:var(--text-dim);font-size:11px">加载中...</div>';
+    try {
+      const r = await authFetch("/api/hook-settings/" + encoded);
+      const settings = await r.json();
+      container.innerHTML = "";
+
+      if (hasClaude) {
+        const section = document.createElement("div");
+        section.className = "hook-event-section";
+        section.innerHTML = '<div class="hook-section-title">Claude 事件</div>';
+        for (const [event, label] of Object.entries(CLAUDE_EVENT_LABELS)) {
+          const enabled = settings.claude?.events?.[event] ?? false;
+          section.appendChild(createToggle(label, enabled, async (val) => {
+            await saveEventToggle(projectPath, "claude", event, val);
+          }));
+        }
+        container.appendChild(section);
+      }
+
+      if (hasCodex) {
+        const section = document.createElement("div");
+        section.className = "hook-event-section";
+        section.innerHTML = '<div class="hook-section-title">Codex 事件</div>';
+        for (const [event, label] of Object.entries(CODEX_EVENT_LABELS)) {
+          const enabled = settings.codex?.events?.[event] ?? false;
+          section.appendChild(createToggle(label, enabled, async (val) => {
+            await saveEventToggle(projectPath, "codex", event, val);
+          }));
+        }
+        container.appendChild(section);
+      }
+
+      if (!hasClaude && !hasCodex) {
+        container.innerHTML = '<div style="padding:8px;color:var(--text-dim);font-size:11px">未检测到 Claude 或 Codex</div>';
+      }
+
+      // Sync button
+      const syncBtn = document.createElement("button");
+      syncBtn.className = "btn-secondary";
+      syncBtn.style.cssText = "font-size:11px;padding:4px 8px;margin-top:6px;width:100%";
+      syncBtn.textContent = "重新同步";
+      syncBtn.addEventListener("click", async () => {
+        syncBtn.textContent = "同步中...";
+        syncBtn.disabled = true;
+        try {
+          await authFetch("/api/hook-sync/" + encoded, { method: "POST" });
+          syncBtn.textContent = "✓ 已同步";
+        } catch {
+          syncBtn.textContent = "✗ 同步失败";
+        }
+        setTimeout(() => { syncBtn.textContent = "重新同步"; syncBtn.disabled = false; }, 2000);
+      });
+      container.appendChild(syncBtn);
+
+    } catch {
+      container.innerHTML = '<div style="padding:4px;color:var(--danger);font-size:11px">加载失败</div>';
+    }
+  }
+
+  function createToggle(label, enabled, onChange) {
+    const row = document.createElement("div");
+    row.className = "hook-toggle-row";
+    row.innerHTML = '<span class="hook-toggle-label">' + escapeHtml(label) + '</span>';
+    const toggle = document.createElement("div");
+    toggle.className = "hook-toggle" + (enabled ? " on" : "");
+    toggle.innerHTML = '<div class="hook-toggle-knob"></div>';
+    toggle.addEventListener("click", () => {
+      const newVal = !toggle.classList.contains("on");
+      toggle.classList.toggle("on", newVal);
+      onChange(newVal);
+    });
+    row.appendChild(toggle);
+    return row;
+  }
+
+  async function saveEventToggle(projectPath, tool, event, enabled) {
+    const encoded = btoa(projectPath);
+    const body = {};
+    body[tool] = { events: {} };
+    body[tool].events[event] = enabled;
+    try {
+      await authFetch("/api/hook-settings/" + encoded, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      console.error("Failed to save hook setting:", e);
+    }
+  }
 
   // --- Sidebar Tab Switching (US-008) ---
   let activeSidebarTab = "sessions";
@@ -2265,7 +2602,7 @@
   async function loadFileTreeForSession() {
     if (!activeSessionId) return;
     try {
-      const r = await fetch(`/api/sessions/${activeSessionId}/cwd`);
+      const r = await authFetch(`/api/sessions/${activeSessionId}/cwd`);
       const d = await r.json();
       sessionCwds.set(activeSessionId, d.cwd);
       // Restore stored root or default to session cwd
@@ -2303,7 +2640,7 @@
   async function renderFileTreeRoot(rootPath) {
     fileTree.innerHTML = '<div class="ft-loading">Loading...</div>';
     try {
-      const r = await fetch(`/api/fs/list?path=${encodeURIComponent(rootPath)}&hidden=${showHiddenFiles}`);
+      const r = await authFetch(`/api/fs/list?path=${encodeURIComponent(rootPath)}&hidden=${showHiddenFiles}`);
       const d = await r.json();
       fileTree.innerHTML = "";
       if (d.entries.length === 0) {
@@ -2367,7 +2704,7 @@
           children.innerHTML = '<div class="ft-loading">Loading...</div>';
           children.classList.add("open");
           try {
-            const r = await fetch(`/api/fs/list?path=${encodeURIComponent(fullPath)}&hidden=${showHiddenFiles}`);
+            const r = await authFetch(`/api/fs/list?path=${encodeURIComponent(fullPath)}&hidden=${showHiddenFiles}`);
             const d = await r.json();
             children.innerHTML = "";
             if (d.entries.length === 0) {
@@ -2514,7 +2851,7 @@
     const formData = new FormData();
     for (const f of fileUploadInput.files) formData.append("files", f);
     try {
-      await fetch(`/api/fs/upload?dest=${encodeURIComponent(fileTreeRoot)}`, { method: "POST", body: formData });
+      await authFetch(`/api/fs/upload?dest=${encodeURIComponent(fileTreeRoot)}`, { method: "POST", body: formData });
       renderFileTreeRoot(fileTreeRoot);
     } catch {}
     fileUploadInput.value = "";
@@ -2530,7 +2867,7 @@
     const formData = new FormData();
     for (const f of e.dataTransfer.files) formData.append("files", f);
     try {
-      await fetch(`/api/fs/upload?dest=${encodeURIComponent(fileTreeRoot)}`, { method: "POST", body: formData });
+      await authFetch(`/api/fs/upload?dest=${encodeURIComponent(fileTreeRoot)}`, { method: "POST", body: formData });
       renderFileTreeRoot(fileTreeRoot);
     } catch {}
   });
@@ -2554,7 +2891,7 @@
 
   async function openFileInEditor(filePath, fileName) {
     try {
-      const r = await fetch(`/api/fs/read?path=${encodeURIComponent(filePath)}`);
+      const r = await authFetch(`/api/fs/read?path=${encodeURIComponent(filePath)}`);
       const d = await r.json();
 
       if (d.tooLarge) {
