@@ -7,7 +7,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const { execSync } = require("child_process");
 const bcrypt = require("bcryptjs");
-const { getConfig, saveConfig, recordRecentDir, recordRecentLaunch, getRecentDirEntry, getTopRecentDirs, initHookConfig, getHookConfig, getHookSettings, saveHookSettings, getProjectHookSettings, saveProjectHookSettings, getDefaultHookSettings } = require("./lib/config");
+const { getConfig, saveConfig, recordRecentDir, recordRecentLaunch, getRecentDirEntry, getTopRecentDirs, getSessionHistory, initHookConfig, getHookConfig, getHookSettings, saveHookSettings, getProjectHookSettings, saveProjectHookSettings, getDefaultHookSettings } = require("./lib/config");
 const { syncProjectHooks, detectTools, readClaudeHooks, readCodexHooks, removeClaudeHooks, removeCodexHooks } = require("./lib/hook-injector");
 
 const app = express();
@@ -254,6 +254,11 @@ app.get("/api/recent-dirs/lookup", authMiddleware, (req, res) => {
   if (!dirPath) return res.status(400).json({ error: "path required" });
   const entry = getRecentDirEntry(dirPath);
   res.json(entry || null);
+});
+
+app.get("/api/session-history", authMiddleware, (req, res) => {
+  const q = req.query.q || "";
+  res.json(getSessionHistory(q, 100));
 });
 
 // --- Hook Notification API (US-002) ---
@@ -514,12 +519,13 @@ app.post("/api/sessions", authMiddleware, (req, res) => {
   const session = createSession(name, shell, cwd, aiTool);
   // Record recent directory
   if (cwd) recordRecentDir(cwd);
-  if (cwd && (aiTool || initCmd || launchMeta)) {
+  if (cwd) {
     recordRecentLaunch(cwd, {
       aiTool: launchMeta?.aiTool || aiTool || null,
       initCmd: launchMeta?.initCmd || initCmd || null,
       opts: launchMeta?.opts || {},
       sessionName: launchMeta?.sessionName || name || session.name,
+      shell: shell || process.env.SHELL || "bash",
     });
   }
   // Auto-inject hooks (async, non-blocking)
@@ -531,6 +537,40 @@ app.post("/api/sessions", authMiddleware, (req, res) => {
       if (s) s.pty.write(initCmd + "\r");
     }, 300);
   }
+  res.json({ id: session.id, name: session.name });
+});
+
+app.post("/api/session-history/launch", authMiddleware, (req, res) => {
+  const { path: dirPath } = req.body || {};
+  if (!dirPath) return res.status(400).json({ error: "path required" });
+  const entry = getRecentDirEntry(dirPath);
+  if (!entry || !entry.lastLaunch) {
+    return res.status(404).json({ error: "History entry not found" });
+  }
+  if (!fs.existsSync(dirPath)) {
+    return res.status(404).json({ error: "Directory not found" });
+  }
+
+  const launch = entry.lastLaunch;
+  const name = launch.sessionName || path.basename(dirPath) || undefined;
+  const session = createSession(name, process.env.SHELL || "bash", dirPath, launch.aiTool || undefined);
+  recordRecentDir(dirPath);
+  recordRecentLaunch(dirPath, {
+    aiTool: launch.aiTool || null,
+    initCmd: launch.initCmd || null,
+    opts: launch.opts || {},
+    sessionName: name || session.name,
+    shell: process.env.SHELL || "bash",
+  });
+  setImmediate(() => autoInjectHooks(dirPath, launch.aiTool || null));
+
+  if (launch.initCmd) {
+    setTimeout(() => {
+      const s = sessions.get(session.id);
+      if (s) s.pty.write(launch.initCmd + "\r");
+    }, 300);
+  }
+
   res.json({ id: session.id, name: session.name });
 });
 

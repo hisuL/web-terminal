@@ -10,9 +10,9 @@
 |:---:|:---:|:---:|
 | <img src="screenshots/web-claude-terminal.png" width="350"> | <img src="screenshots/web-file-browser.png" width="350"> | <img src="screenshots/web-code-editor.png" width="350"> |
 
-| 通知面板 | 新建会话 — 目录选择 | 新建会话 — AI 工具选择 | tmux 会话管理 |
+| 通知面板 | 历史会话恢复 | 最近目录自动预选 | tmux 会话管理 |
 |:---:|:---:|:---:|:---:|
-| <img src="screenshots/web-notification.png" width="280"> | <img src="screenshots/web-wizard-dir.png" width="280"> | <img src="screenshots/web-wizard-ai.png" width="280"> | <img src="screenshots/web-tmux.png" width="280"> |
+| <img src="screenshots/web-notification.png" width="280"> | <img src="screenshots/web-session-history.png" width="280"> | <img src="screenshots/web-wizard-history-preset.png" width="280"> | <img src="screenshots/web-tmux.png" width="280"> |
 
 ### 手机端
 
@@ -27,8 +27,11 @@
 ## 功能特性
 
 - **多会话管理**：侧边栏切换，支持任意数量并发终端会话
+- **历史会话恢复**：Sessions 面板内置历史视图，按目录去重缓存非 tmux 会话，支持搜索并一键按最近命令恢复
 - **tmux 接入**：将已有 tmux 会话挂载为浏览器标签
 - **新建会话向导**：图形化选择工作目录、AI 工具（Claude / Codex / 无）
+  - 最近目录确认后可直接进入 AI 工具步骤
+  - 自动显示并预选该目录最近一次 Claude / Codex 启动命令
 - **固定快捷键栏**：根据会话类型自动显示对应按钮
   - 普通终端：方向键、ESC 等通用按钮
   - Claude 会话：/clear、/compact、接受/拒绝等
@@ -41,6 +44,7 @@
   - 点击通知自动跳转对应会话
   - 支持浏览器原生通知（页面后台时弹窗提醒）
   - 可选通知声音（支持开关）
+  - Claude / Codex 项目级 hooks 做增量注入与精确清理，不覆盖用户原有 hook 配置
 - **文件浏览器**：侧边栏 Files tab 查看当前会话工作目录
   - 懒加载文件树，点击文件夹展开
   - 隐藏文件切换（默认隐藏 node_modules、.git 等）
@@ -164,6 +168,7 @@ AI 快捷键分析功能依赖 [OpenRouter](https://openrouter.ai/) 服务，使
 - **新建会话**：点击侧边栏底部 `+ New Session`，按向导选择目录和工具
 - **切换会话**：点击侧边栏中的会话名称
 - **关闭会话**：长按会话名称 → 删除，或点击会话旁的 × 按钮
+- **恢复历史会话**：在 `Sessions` 面板切到 `历史`，搜索目录后点击 `恢复`
 - **接入 tmux**：点击侧边栏底部 `Attach tmux`
 
 ### 快捷键栏
@@ -185,6 +190,14 @@ AI 快捷键分析功能依赖 [OpenRouter](https://openrouter.ai/) 服务，使
 - 侧边栏中有未读通知的会话会显示红色呼吸灯 + 摇动铃铛图标
 - 页面在后台时会弹浏览器系统通知
 - 通知面板内可开关提示音
+
+### Codex / Claude 项目级 Hooks
+
+Web Terminal 会按项目注入 Claude / Codex 的 hooks，用于通知回传和项目级事件开关：
+
+- 已有项目级 hook 时只做增量合并，不覆盖用户原有内容
+- 会话退出且项目不再被任何活动会话使用时，只清理 Web Terminal 自己注入的 hook
+- 如果项目根下 `.codex` 原本是文件，服务会自动备份后迁移成目录，再写入官方约定的 `.codex/hooks.json`
 
 ### 手机端使用
 

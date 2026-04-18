@@ -30,6 +30,11 @@
   let reconnectTimer = null;
   let sidebarOpen = false;
   let shortcutBarOpen = false;
+  let activeSessionView = "current";
+  let sessionHistoryItems = [];
+  let sessionHistoryQuery = "";
+  let historyLoading = false;
+  let restoringHistoryPath = null;
   let currentFontSize = parseInt(localStorage.getItem("termFontSize"), 10) || (window.innerWidth <= 768 ? 13 : 15);
   const MIN_FONT_SIZE = 8;
   const MAX_FONT_SIZE = 32;
@@ -257,6 +262,11 @@
   const sidebar = document.getElementById("sidebar");
   const sidebarOverlay = document.getElementById("sidebar-overlay");
   const sessionList = document.getElementById("session-list");
+  const sessionHistoryPanel = document.getElementById("session-history-panel");
+  const sessionHistoryList = document.getElementById("session-history-list");
+  const sessionHistoryEmpty = document.getElementById("session-history-empty");
+  const sessionHistorySearch = document.getElementById("session-history-search");
+  const sessionViewTabs = document.querySelectorAll(".session-view-tab");
   const terminalContainer = document.getElementById("terminal-container");
   const noSession = document.getElementById("no-session");
   const toolbarTitle = document.getElementById("toolbar-title");
@@ -356,6 +366,113 @@
         else if (action === "rename") renameSession(id);
       });
     });
+  }
+
+  function getHistoryToolIcon(item) {
+    const tool = item?.lastLaunch?.aiTool;
+    if (tool === "claude") return SVG.claude;
+    if (tool === "codex") return SVG.codex;
+    return SVG.history;
+  }
+
+  function relativeTimeShort(ts) {
+    if (!ts) return "";
+    const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+    if (diff < 60) return diff + "s ago";
+    if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+    if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+    return Math.floor(diff / 86400) + "d ago";
+  }
+
+  async function loadSessionHistory(query = "") {
+    historyLoading = true;
+    sessionHistoryList.innerHTML = '<div class="ft-loading">Loading...</div>';
+    sessionHistoryEmpty.style.display = "none";
+    try {
+      const r = await authFetch("/api/session-history?q=" + encodeURIComponent(query));
+      sessionHistoryItems = await r.json();
+    } catch {
+      sessionHistoryList.innerHTML = '<div class="ft-empty">Failed to load</div>';
+    } finally {
+      historyLoading = false;
+      renderSessionHistoryList();
+    }
+  }
+
+  function renderSessionHistoryList() {
+    if (historyLoading) return;
+    sessionHistoryList.innerHTML = "";
+    if (!Array.isArray(sessionHistoryItems) || sessionHistoryItems.length === 0) {
+      sessionHistoryEmpty.style.display = "block";
+      return;
+    }
+    sessionHistoryEmpty.style.display = "none";
+    sessionHistoryItems.forEach((item) => {
+      const div = document.createElement("div");
+      div.className = "history-session-item";
+      const basename = item.path.split("/").pop() || item.path;
+      const cmd = item.lastLaunch?.initCmd || "普通终端";
+      const restoring = restoringHistoryPath === item.path;
+      div.innerHTML = `
+        <div class="history-session-icon">${getHistoryToolIcon(item)}</div>
+        <div class="history-session-body">
+          <div class="history-session-header">
+            <div class="history-session-name">${escapeHtml(item.lastLaunch?.sessionName || basename)}</div>
+            <div class="history-session-time">${escapeHtml(relativeTimeShort(item.timestamp))}</div>
+          </div>
+          <div class="history-session-path">${escapeHtml(item.path)}</div>
+          <div class="history-session-cmd">最近命令: ${escapeHtml(cmd)}</div>
+        </div>
+        <div class="history-session-actions">
+          <button class="btn-secondary history-restore-btn" data-path="${encodeURIComponent(item.path)}" ${restoring ? "disabled" : ""}>${restoring ? "恢复中..." : "恢复"}</button>
+        </div>
+      `;
+      div.addEventListener("click", () => {
+        sessionHistoryList.querySelectorAll(".history-session-item").forEach((el) => el.classList.remove("selected"));
+        div.classList.add("selected");
+      });
+      sessionHistoryList.appendChild(div);
+    });
+
+    sessionHistoryList.querySelectorAll(".history-restore-btn").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const dirPath = decodeURIComponent(btn.dataset.path || "");
+        await restoreHistorySession(dirPath);
+      });
+    });
+  }
+
+  async function restoreHistorySession(dirPath) {
+    restoringHistoryPath = dirPath;
+    renderSessionHistoryList();
+    try {
+      const res = await authFetch("/api/session-history/launch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: dirPath }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to restore");
+      activeSessionView = "current";
+      renderSessionView();
+      switchSession(data.id);
+    } catch (e) {
+      alert(e.message || "Failed to restore");
+    } finally {
+      restoringHistoryPath = null;
+      renderSessionHistoryList();
+    }
+  }
+
+  function renderSessionView() {
+    const showCurrent = activeSessionView === "current";
+    sessionList.style.display = showCurrent ? "" : "none";
+    sessionHistoryPanel.style.display = showCurrent ? "none" : "flex";
+    sessionViewTabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.view === activeSessionView));
+    if (!showCurrent && sessionHistoryItems.length === 0) {
+      loadSessionHistory(sessionHistoryQuery);
+    }
   }
 
   // --- Session Actions ---
@@ -1612,6 +1729,16 @@
 
   // --- Button bindings ---
   document.getElementById("new-session-btn").addEventListener("click", openWizard);
+  sessionViewTabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      activeSessionView = tab.dataset.view;
+      renderSessionView();
+    });
+  });
+  sessionHistorySearch.addEventListener("input", () => {
+    sessionHistoryQuery = sessionHistorySearch.value.trim();
+    loadSessionHistory(sessionHistoryQuery);
+  });
   document.getElementById("no-session-btn").addEventListener("click", openWizard);
   document.getElementById("font-inc").addEventListener("click", () => changeFontSize(2));
   document.getElementById("font-dec").addEventListener("click", () => changeFontSize(-2));
@@ -3169,6 +3296,7 @@
   function bootApp() {
     if (changePwdBtn) changePwdBtn.style.display = "";
     connectLobby();
+    renderSessionView();
     updateMainView();
 
     authFetch("/api/config")
