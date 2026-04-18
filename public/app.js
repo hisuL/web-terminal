@@ -1141,7 +1141,13 @@
     await authFetch(`/api/sessions/${id}`, { method: "DELETE" });
     sessionFileTreeRoots.delete(id);
     sessionCwds.delete(id);
+    sessionWorkspaceViews.delete(id);
     if (id === activeSessionId) {
+      if (typeof teardownEditorView === "function") {
+        teardownEditorView();
+        const editorEl = document.getElementById("editor-container");
+        if (editorEl) editorEl.style.display = "none";
+      }
       disconnectTerminal();
       activeSessionId = null;
       updateMainView();
@@ -1187,17 +1193,15 @@
   }
 
   // --- Terminal Connection ---
-  function switchSession(id) {
+  async function switchSession(id) {
     if (id === activeSessionId) return;
     // Save current file tree root before switching
     if (activeSessionId && fileTreeRoot) {
       sessionFileTreeRoots.set(activeSessionId, fileTreeRoot);
     }
-    // Close editor if open
-    if (typeof closeEditor === "function" && document.getElementById("editor-container").style.display !== "none") {
-      if (editorView) { editorView.destroy(); editorView = null; }
-      document.getElementById("editor-area").innerHTML = "";
-      document.getElementById("editor-container").style.display = "none";
+    if (typeof prepareSessionWorkspaceSwitch === "function") {
+      const canSwitch = await prepareSessionWorkspaceSwitch();
+      if (!canSwitch) return;
     }
     disconnectTerminal();
     activeSessionId = id;
@@ -1212,6 +1216,9 @@
     }
     // Refresh file tree if Files tab active
     if (activeSidebarTab === "files") loadFileTreeForSession();
+    if (typeof restoreSessionWorkspaceView === "function") {
+      void restoreSessionWorkspaceView(id);
+    }
   }
 
   function updateMainView() {
@@ -2696,6 +2703,9 @@
     panelSessions.style.display = tab === "sessions" ? "flex" : "none";
     panelFiles.style.display = tab === "files" ? "flex" : "none";
     if (tab === "files" && activeSessionId) loadFileTreeForSession();
+    if (activeSessionId && typeof restoreSessionWorkspaceView === "function") {
+      void restoreSessionWorkspaceView(activeSessionId);
+    }
   }
 
   sidebarTabs.forEach((t) => t.addEventListener("click", () => switchSidebarTab(t.dataset.tab)));
@@ -2712,6 +2722,7 @@
   let fileTreeRoot = null; // current root path
   const sessionFileTreeRoots = new Map(); // session ID -> file tree root path
   const sessionCwds = new Map(); // session ID -> session cwd (baseline)
+  const sessionWorkspaceViews = new Map(); // session ID -> { mode, filePath, fileName }
   let showHiddenFiles = localStorage.getItem("showHidden") === "true";
   if (showHiddenFiles) fileHiddenToggle.classList.add("active");
 
@@ -3015,18 +3026,102 @@
   let editorDirty = false;
   let editorReadOnly = true;
   let editorReadOnlyCompartment = null;
+  let editorOpenRequestSeq = 0;
 
-  async function openFileInEditor(filePath, fileName) {
+  function setSessionWorkspaceView(sessionId, patch) {
+    if (!sessionId) return;
+    const current = sessionWorkspaceViews.get(sessionId) || {
+      mode: "terminal",
+      filePath: null,
+      fileName: null,
+    };
+    sessionWorkspaceViews.set(sessionId, { ...current, ...patch });
+  }
+
+  function rememberActiveSessionWorkspaceView() {
+    if (!activeSessionId) return;
+    if (editorView && editorFilePath) {
+      setSessionWorkspaceView(activeSessionId, {
+        mode: "editor",
+        filePath: editorFilePath,
+        fileName: editorFilename.textContent || editorFilePath.split("/").pop() || "Untitled",
+      });
+      return;
+    }
+    setSessionWorkspaceView(activeSessionId, { mode: "terminal" });
+  }
+
+  function teardownEditorView() {
+    editorOpenRequestSeq += 1;
+    clearTimeout(editorSaveTimer);
+    if (editorView) {
+      editorView.destroy();
+      editorView = null;
+    }
+    editorArea.innerHTML = "";
+    editorFilePath = null;
+    editorDirty = false;
+    editorReadOnly = true;
+    editorReadOnlyCompartment = null;
+  }
+
+  function showTerminalView() {
+    editorContainer.style.display = "none";
+    terminalContainer.style.display = "block";
+    if (terminal) terminal.focus();
+  }
+
+  async function prepareSessionWorkspaceSwitch() {
+    rememberActiveSessionWorkspaceView();
+    if (!editorView) return true;
+
+    if (editorDirty && !editorReadOnly) {
+      clearTimeout(editorSaveTimer);
+      await autoSave();
+      if (editorDirty && !confirm("当前文件尚未保存，继续切换会丢失更改。是否继续？")) {
+        return false;
+      }
+    }
+
+    teardownEditorView();
+    editorContainer.style.display = "none";
+    return true;
+  }
+
+  async function restoreSessionWorkspaceView(sessionId) {
+    if (activeSidebarTab !== "files") {
+      showTerminalView();
+      return;
+    }
+    const viewState = sessionWorkspaceViews.get(sessionId);
+    if (!viewState || viewState.mode !== "editor" || !viewState.filePath) {
+      showTerminalView();
+      return;
+    }
+    if (editorView && editorFilePath === viewState.filePath) {
+      terminalContainer.style.display = "none";
+      editorContainer.style.display = "flex";
+      editorView.focus();
+      return;
+    }
+    await openFileInEditor(viewState.filePath, viewState.fileName, { sessionId });
+  }
+
+  async function openFileInEditor(filePath, fileName, options = {}) {
+    const targetSessionId = options.sessionId || activeSessionId;
+    const requestSeq = ++editorOpenRequestSeq;
     try {
       const r = await authFetch(`/api/fs/read?path=${encodeURIComponent(filePath)}`);
       const d = await r.json();
 
       if (d.tooLarge) {
+        setSessionWorkspaceView(targetSessionId, { mode: "terminal" });
         alert(`File too large (${formatFileSize(d.size)}). Max 1MB for editing.`);
         downloadEntry(filePath);
         return;
       }
       if (d.binary) {
+        setSessionWorkspaceView(targetSessionId, { mode: "terminal" });
         alert("Binary file — download only.");
         downloadEntry(filePath);
         return;
@@ -3039,14 +3134,18 @@
         return;
       }
 
+      if (requestSeq !== editorOpenRequestSeq || targetSessionId !== activeSessionId) {
+        return;
+      }
+
       // Destroy previous editor
-      if (editorView) { editorView.destroy(); editorView = null; }
-      clearTimeout(editorSaveTimer);
+      teardownEditorView();
 
       editorFilePath = filePath;
       editorDirty = false;
       editorReadOnly = true;
       editorReadOnlyCompartment = new mod.Compartment();
+      setSessionWorkspaceView(targetSessionId, { mode: "editor", filePath, fileName });
       editorFilename.textContent = fileName;
       editorFilename.title = filePath;
       editorLang.textContent = mod.getLangName(fileName);
@@ -3089,7 +3188,10 @@
 
       editorView.focus();
     } catch (e) {
-      alert("Failed to open file: " + e.message);
+      setSessionWorkspaceView(targetSessionId, { mode: "terminal" });
+      if (targetSessionId === activeSessionId) {
+        alert("Failed to open file: " + e.message);
+      }
     }
   }
 
@@ -3165,14 +3267,12 @@
     if (editorDirty) {
       if (!confirm("Unsaved changes will be lost. Close anyway?")) return;
     }
-    clearTimeout(editorSaveTimer);
-    if (editorView) { editorView.destroy(); editorView = null; }
-    editorArea.innerHTML = "";
-    editorFilePath = null;
-    editorDirty = false;
+    teardownEditorView();
+    if (activeSessionId) {
+      setSessionWorkspaceView(activeSessionId, { mode: "terminal" });
+    }
     editorContainer.style.display = "none";
-    terminalContainer.style.display = "block";
-    if (terminal) terminal.focus();
+    showTerminalView();
   }
 
   editorCloseBtn.addEventListener("click", closeEditor);
