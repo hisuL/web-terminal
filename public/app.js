@@ -13,6 +13,8 @@
     unlock: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg>',
     soundOn: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 010 14.14"/><path d="M15.54 8.46a5 5 0 010 7.07"/></svg>',
     soundOff: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>',
+    restore: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16"/><path d="M11 8l6 4-6 4"/></svg>',
+    trash: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>',
     claude: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>',
     codex: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
     dirFolder: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>',
@@ -35,6 +37,10 @@
   let sessionHistoryQuery = "";
   let historyLoading = false;
   let restoringHistoryPath = null;
+  let deletingHistoryPath = null;
+  let activeSessionHeartbeatTimer = null;
+  let activeSessionHeartbeatInFlight = false;
+  const ACTIVE_SESSION_HEARTBEAT_MS = 60000;
   let currentFontSize = parseInt(localStorage.getItem("termFontSize"), 10) || (window.innerWidth <= 768 ? 13 : 15);
   const MIN_FONT_SIZE = 8;
   const MAX_FONT_SIZE = 32;
@@ -345,8 +351,8 @@
           <div class="session-meta">${formatTime(s.createdAt)} · ${s.clients} conn</div>
         </div>
         <div class="session-actions">
-          <button class="btn-icon" data-action="rename" data-id="${s.id}" title="Rename">${SVG.edit}</button>
-          <button class="btn-icon danger" data-action="close" data-id="${s.id}" title="Close">${SVG.close}</button>
+          <button class="btn-icon" data-action="rename" data-id="${s.id}" title="重命名">${SVG.edit}</button>
+          <button class="btn-icon danger" data-action="close" data-id="${s.id}" title="关闭">${SVG.close}</button>
         </div>
       `;
       div.addEventListener("click", (e) => {
@@ -386,13 +392,13 @@
 
   async function loadSessionHistory(query = "") {
     historyLoading = true;
-    sessionHistoryList.innerHTML = '<div class="ft-loading">Loading...</div>';
+    sessionHistoryList.innerHTML = '<div class="ft-loading">加载中...</div>';
     sessionHistoryEmpty.style.display = "none";
     try {
       const r = await authFetch("/api/session-history?q=" + encodeURIComponent(query));
       sessionHistoryItems = await r.json();
     } catch {
-      sessionHistoryList.innerHTML = '<div class="ft-empty">Failed to load</div>';
+      sessionHistoryList.innerHTML = '<div class="ft-empty">加载失败</div>';
     } finally {
       historyLoading = false;
       renderSessionHistoryList();
@@ -413,6 +419,10 @@
       const basename = item.path.split("/").pop() || item.path;
       const cmd = item.lastLaunch?.initCmd || "普通终端";
       const restoring = restoringHistoryPath === item.path;
+      const deleting = deletingHistoryPath === item.path;
+      const deleteBtn = item.deletable
+        ? `<button class="btn-icon history-delete-btn" data-path="${encodeURIComponent(item.path)}" title="删除历史记录" aria-label="删除历史记录" ${deleting ? "disabled" : ""}>${SVG.trash}</button>`
+        : "";
       div.innerHTML = `
         <div class="history-session-icon">${getHistoryToolIcon(item)}</div>
         <div class="history-session-body">
@@ -424,7 +434,8 @@
           <div class="history-session-cmd">最近命令: ${escapeHtml(cmd)}</div>
         </div>
         <div class="history-session-actions">
-          <button class="btn-secondary history-restore-btn" data-path="${encodeURIComponent(item.path)}" ${restoring ? "disabled" : ""}>${restoring ? "恢复中..." : "恢复"}</button>
+          <button class="btn-icon history-restore-btn" data-path="${encodeURIComponent(item.path)}" title="恢复会话" aria-label="恢复会话" ${restoring ? "disabled" : ""}>${SVG.restore}</button>
+          ${deleteBtn}
         </div>
       `;
       div.addEventListener("click", () => {
@@ -441,6 +452,49 @@
         await restoreHistorySession(dirPath);
       });
     });
+
+    sessionHistoryList.querySelectorAll(".history-delete-btn").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const dirPath = decodeURIComponent(btn.dataset.path || "");
+        await deleteHistorySession(dirPath);
+      });
+    });
+  }
+
+  async function touchActiveSession(force = false) {
+    if (!activeSessionId) return;
+    if (document.hidden && !force) return;
+    if (activeSessionHeartbeatInFlight) return;
+    activeSessionHeartbeatInFlight = true;
+    try {
+      const res = await authFetch(`/api/sessions/${activeSessionId}/activity`, { method: "POST" });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (data?.path && data?.timestamp) {
+        const item = sessionHistoryItems.find((entry) => entry.path === data.path);
+        if (item) {
+          item.timestamp = data.timestamp;
+          renderSessionHistoryList();
+        }
+      }
+    } catch {
+      // ignore activity heartbeat failures
+    } finally {
+      activeSessionHeartbeatInFlight = false;
+    }
+  }
+
+  function resetActiveSessionHeartbeat() {
+    if (activeSessionHeartbeatTimer) {
+      clearInterval(activeSessionHeartbeatTimer);
+      activeSessionHeartbeatTimer = null;
+    }
+    if (!activeSessionId) return;
+    void touchActiveSession(true);
+    activeSessionHeartbeatTimer = setInterval(() => {
+      void touchActiveSession(false);
+    }, ACTIVE_SESSION_HEARTBEAT_MS);
   }
 
   async function restoreHistorySession(dirPath) {
@@ -461,6 +515,28 @@
       alert(e.message || "Failed to restore");
     } finally {
       restoringHistoryPath = null;
+      renderSessionHistoryList();
+    }
+  }
+
+  async function deleteHistorySession(dirPath) {
+    if (!confirm(`确认删除这条历史记录？\n\n${dirPath}\n\n这会同时清除对应缓存和 hook 文件。`)) return;
+    deletingHistoryPath = dirPath;
+    renderSessionHistoryList();
+    try {
+      const res = await authFetch("/api/session-history", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: dirPath }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "删除失败");
+      sessionHistoryItems = sessionHistoryItems.filter((item) => item.path !== dirPath);
+      renderSessionHistoryList();
+    } catch (e) {
+      alert(e.message || "删除失败");
+    } finally {
+      deletingHistoryPath = null;
       renderSessionHistoryList();
     }
   }
@@ -633,7 +709,7 @@
       recentDirsResolve = resolve;
       recentDirsSelected = null;
       recentDirsConfirm.disabled = true;
-      recentDirsList.innerHTML = '<div style="padding:8px;color:var(--text-dim)">Loading...</div>';
+      recentDirsList.innerHTML = '<div style="padding:8px;color:var(--text-dim)">加载中...</div>';
       recentDirsEmpty.style.display = "none";
       recentDirsModal.style.display = "flex";
 
@@ -664,7 +740,7 @@
           recentDirsList.appendChild(item);
         });
       } catch {
-        recentDirsList.innerHTML = '<div style="padding:8px;color:var(--danger)">Failed to load</div>';
+        recentDirsList.innerHTML = '<div style="padding:8px;color:var(--danger)">加载失败</div>';
       }
     });
   }
@@ -1137,7 +1213,7 @@
   }
 
   async function closeSession(id) {
-    if (!confirm("Close this session?")) return;
+    if (!confirm("关闭这个会话？")) return;
     await authFetch(`/api/sessions/${id}`, { method: "DELETE" });
     sessionFileTreeRoots.delete(id);
     sessionCwds.delete(id);
@@ -1150,6 +1226,7 @@
       }
       disconnectTerminal();
       activeSessionId = null;
+      resetActiveSessionHeartbeat();
       updateMainView();
     }
   }
@@ -1219,6 +1296,7 @@
     if (typeof restoreSessionWorkspaceView === "function") {
       void restoreSessionWorkspaceView(id);
     }
+    resetActiveSessionHeartbeat();
   }
 
   function updateMainView() {
@@ -1564,6 +1642,9 @@
   function toggleSelectMode() {
     selectMode = !selectMode;
     selectModeBtn.classList.toggle("active", selectMode);
+    const selectModeLabel = selectMode ? "退出文本选择模式" : "文本选择模式";
+    selectModeBtn.title = selectModeLabel;
+    selectModeBtn.setAttribute("aria-label", selectModeLabel);
 
     if (selectMode) {
       // 隐藏 xterm canvas 层，避免两层叠加和 touch 事件冲突
@@ -2442,7 +2523,7 @@
     if (!sessionExists) {
       showCopyToast();
       copyToast.textContent = "Session no longer exists";
-      setTimeout(() => { copyToast.textContent = "Copied!"; }, 1500);
+      setTimeout(() => { copyToast.textContent = "已复制"; }, 1500);
       return;
     }
 
@@ -2506,7 +2587,14 @@
   // Update relative times periodically
   setInterval(() => {
     if (notifPanelOpen) renderNotifList();
+    if (activeSessionView === "history" && !historyLoading) renderSessionHistoryList();
   }, 30000);
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      void touchActiveSession(true);
+    }
+  });
 
   // --- Notification Settings (US-009) ---
   const notifSettingsBtn = document.getElementById("notif-settings-btn");
@@ -2751,7 +2839,7 @@
       updateFileTreeBackBtn();
       renderFileTreeRoot(fileTreeRoot);
     } catch {
-      fileTree.innerHTML = '<div class="ft-empty">Failed to load</div>';
+      fileTree.innerHTML = '<div class="ft-empty">加载失败</div>';
     }
   }
 
@@ -2776,20 +2864,20 @@
   });
 
   async function renderFileTreeRoot(rootPath) {
-    fileTree.innerHTML = '<div class="ft-loading">Loading...</div>';
+    fileTree.innerHTML = '<div class="ft-loading">加载中...</div>';
     try {
       const r = await authFetch(`/api/fs/list?path=${encodeURIComponent(rootPath)}&hidden=${showHiddenFiles}`);
       const d = await r.json();
       fileTree.innerHTML = "";
       if (d.entries.length === 0) {
-        fileTree.innerHTML = '<div class="ft-empty">(empty)</div>';
+        fileTree.innerHTML = '<div class="ft-empty">空目录</div>';
         return;
       }
       d.entries.forEach((entry) => {
         fileTree.appendChild(createFileTreeItem(entry, rootPath, 0));
       });
     } catch {
-      fileTree.innerHTML = '<div class="ft-empty">Failed to load</div>';
+      fileTree.innerHTML = '<div class="ft-empty">加载失败</div>';
     }
   }
 
@@ -2839,20 +2927,20 @@
       let loaded = false;
       row.addEventListener("click", async () => {
         if (!loaded) {
-          children.innerHTML = '<div class="ft-loading">Loading...</div>';
+          children.innerHTML = '<div class="ft-loading">加载中...</div>';
           children.classList.add("open");
           try {
             const r = await authFetch(`/api/fs/list?path=${encodeURIComponent(fullPath)}&hidden=${showHiddenFiles}`);
             const d = await r.json();
             children.innerHTML = "";
             if (d.entries.length === 0) {
-              children.innerHTML = '<div class="ft-empty">(empty)</div>';
+              children.innerHTML = '<div class="ft-empty">空目录</div>';
             } else {
               d.entries.forEach((e) => children.appendChild(createFileTreeItem(e, fullPath, depth + 1)));
             }
             loaded = true;
           } catch {
-            children.innerHTML = '<div class="ft-empty">Failed to load</div>';
+            children.innerHTML = '<div class="ft-empty">加载失败</div>';
           }
           icon.innerHTML = SVG.folderOpen; // open folder
         } else {
@@ -2901,14 +2989,14 @@
 
     const items = [];
     if (entry.type === "directory") {
-      items.push({ label: "New File", action: () => inlineCreate(itemEl, filePath, "file") });
-      items.push({ label: "New Folder", action: () => inlineCreate(itemEl, filePath, "directory") });
+      items.push({ label: "新建文件", action: () => inlineCreate(itemEl, filePath, "file") });
+      items.push({ label: "新建文件夹", action: () => inlineCreate(itemEl, filePath, "directory") });
       items.push(null); // separator
     }
-    items.push({ label: "Rename", action: () => inlineRename(filePath, entry, parentPath) });
-    items.push({ label: "Delete", action: () => deleteEntry(filePath, entry.name) });
+    items.push({ label: "重命名", action: () => inlineRename(filePath, entry, parentPath) });
+    items.push({ label: "删除", action: () => deleteEntry(filePath, entry.name) });
     items.push(null);
-    items.push({ label: "Download", action: () => downloadEntry(filePath) });
+    items.push({ label: "下载", action: () => downloadEntry(filePath) });
 
     items.forEach((it) => {
       if (!it) { const sep = document.createElement("div"); sep.className = "ft-context-sep"; menu.appendChild(sep); return; }
@@ -2933,7 +3021,7 @@
   }
 
   async function inlineCreate(itemEl, parentPath, type) {
-    const name = prompt(type === "file" ? "New file name:" : "New folder name:");
+    const name = prompt(type === "file" ? "新文件名称：" : "新文件夹名称：");
     if (!name || !name.trim()) return;
     const newPath = parentPath.replace(/\/$/, "") + "/" + name.trim();
     try {
@@ -2947,7 +3035,7 @@
   }
 
   async function inlineRename(filePath, entry, parentPath) {
-    const newName = prompt("Rename to:", entry.name);
+    const newName = prompt("重命名为：", entry.name);
     if (!newName || !newName.trim() || newName.trim() === entry.name) return;
     const newPath = parentPath.replace(/\/$/, "") + "/" + newName.trim();
     try {
@@ -3265,7 +3353,7 @@
 
   function closeEditor() {
     if (editorDirty) {
-      if (!confirm("Unsaved changes will be lost. Close anyway?")) return;
+      if (!confirm("未保存的修改将丢失，仍然关闭？")) return;
     }
     teardownEditorView();
     if (activeSessionId) {
@@ -3312,16 +3400,16 @@
     authFields.innerHTML = "";
     authError.style.display = "none";
     if (mode === "setup") {
-      authTitle.textContent = "Set Access Password";
-      authSubtitle.textContent = "First time setup — choose a password to secure your terminal.";
-      authFields.innerHTML = '<label class="auth-label">Password<input type="password" id="auth-pw" class="auth-input" required minlength="6" autocomplete="new-password"></label>'
-        + '<label class="auth-label">Confirm Password<input type="password" id="auth-pw2" class="auth-input" required autocomplete="new-password"></label>';
-      authSubmit.textContent = "Set Password";
+      authTitle.textContent = "设置访问密码";
+      authSubtitle.textContent = "首次使用，请设置一个密码来保护你的终端。";
+      authFields.innerHTML = '<label class="auth-label">密码<input type="password" id="auth-pw" class="auth-input" required minlength="6" autocomplete="new-password"></label>'
+        + '<label class="auth-label">确认密码<input type="password" id="auth-pw2" class="auth-input" required autocomplete="new-password"></label>';
+      authSubmit.textContent = "设置密码";
     } else {
       authTitle.textContent = "Web Terminal";
-      authSubtitle.textContent = "Enter your password to continue.";
-      authFields.innerHTML = '<label class="auth-label">Password<input type="password" id="auth-pw" class="auth-input" required autocomplete="current-password"></label>';
-      authSubmit.textContent = "Login";
+      authSubtitle.textContent = "请输入密码继续。";
+      authFields.innerHTML = '<label class="auth-label">密码<input type="password" id="auth-pw" class="auth-input" required autocomplete="current-password"></label>';
+      authSubmit.textContent = "登录";
     }
     authOverlay.style.display = "flex";
     setTimeout(() => { const inp = document.getElementById("auth-pw"); if (inp) inp.focus(); }, 100);
@@ -3339,7 +3427,7 @@
       const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) {
-        authError.textContent = data.error || "Error";
+        authError.textContent = data.error || "出错了";
         authError.style.display = "block";
         return;
       }
@@ -3347,7 +3435,7 @@
       authOverlay.style.display = "none";
       bootApp();
     } catch (err) {
-      authError.textContent = "Connection error";
+      authError.textContent = "连接失败";
       authError.style.display = "block";
     }
   });
@@ -3380,7 +3468,7 @@
       });
       const data = await res.json();
       if (!res.ok) {
-        chpwdError.textContent = data.error || "Error";
+        chpwdError.textContent = data.error || "出错了";
         chpwdError.style.display = "block";
         return;
       }

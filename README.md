@@ -80,35 +80,12 @@ sudo yum groupinstall "Development Tools" && sudo yum install python3
 xcode-select --install
 ```
 
-## 安装（全新）
+## 安装
 
 ```bash
-tar xzf web-terminal.tar.gz
 cd web-terminal
 npm install
 ```
-
-## 升级（已有旧版本）
-
-```bash
-# 1. 停止旧服务
-kill $(lsof -t -i :3456)
-
-# 2. 备份旧目录（可选）
-mv web-terminal web-terminal.bak
-
-# 3. 解压新包
-tar xzf web-terminal.tar.gz
-cd web-terminal
-
-# 4. 重新安装依赖（依赖没变可跳过，但建议执行以确保一致）
-npm install
-
-# 5. 重新启动
-node server.js
-```
-
-> **注意**：配置项（环境变量）保持不变，无需额外迁移。
 
 ## 配置
 
@@ -116,40 +93,88 @@ node server.js
 
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
-| `PORT` | `3456` | 监听端口 |
+| `PORT` | `3456` | 服务监听端口 |
+| `WEB_TERMINAL_DATA_DIR` | `./.web-terminal` | 数据目录，保存密码、最近目录、hook 配置等 |
 | `OPENROUTER_API_KEY` | 无 | OpenRouter API Key，**不设置则 AI 功能自动关闭** |
 
 ## 启动
 
+推荐使用 `systemd` 运行，适合这个项目依赖宿主机真实路径、tmux、Claude/Codex hooks 的场景。
+
+> **部署说明**
+> 这个项目本质上是宿主机终端管理器，历史路径恢复、tmux 接入、Claude/Codex hooks 注入都依赖宿主机真实环境。
+> 因此**不推荐使用 `docker-compose` 作为正式部署方式**，否则容易出现路径恢复失败、tmux 不可见、hook 写入位置不一致等问题。
+
+### 1. 准备环境变量
+
+可直接导出环境变量，或写入当前目录 `.env`：
+
 ```bash
-# 直接启动
-node server.js
-
-# 或使用 npm
-npm start
-
-# 指定端口
-PORT=8080 node server.js
-
-# 启用 AI 快捷键分析
-OPENROUTER_API_KEY=sk-or-xxxxxx node server.js
+export PORT=3456
+export WEB_TERMINAL_DATA_DIR=/home/dministrator/claudeworkspace/web-terminal/.web-terminal
+# 可选：启用 AI 快捷键分析
+export OPENROUTER_API_KEY=sk-or-xxxxxx
 ```
 
-启动后访问：`http://localhost:3456`（或指定的端口）
+- `WEB_TERMINAL_DATA_DIR`：服务数据目录，默认就是项目里的 `./.web-terminal`
 
-### 后台运行（推荐）
+### 2. 直接启动
 
 ```bash
-# 使用 nohup
-nohup OPENROUTER_API_KEY=sk-or-xxxxxx node server.js > web-terminal.log 2>&1 &
+node server.js
+```
 
-# 或使用 tmux
-tmux new-session -d -s web-terminal 'node server.js'
+访问地址：
 
-# 或使用 pm2
-npm install -g pm2
-pm2 start server.js --name web-terminal
-pm2 save
+```text
+http://localhost:3456
+```
+
+### 3. 开机自启动
+
+项目已提供 `systemd` 单元文件：
+
+[systemd/web-terminal.service](/home/dministrator/claudeworkspace/web-terminal/systemd/web-terminal.service)
+
+如果有 `sudo`，推荐安装成系统服务：
+
+```bash
+sudo cp systemd/web-terminal.service /etc/systemd/system/web-terminal.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now web-terminal
+```
+
+如果当前机器不方便使用 `sudo`，也可以放到用户级目录：
+
+```bash
+mkdir -p ~/.config/systemd/user/default.target.wants
+cp systemd/web-terminal.service ~/.config/systemd/user/web-terminal.service
+ln -sf ~/.config/systemd/user/web-terminal.service ~/.config/systemd/user/default.target.wants/web-terminal.service
+```
+
+说明：
+
+- 系统级 `systemd` 方案最稳，推荐优先使用
+- 用户级 `systemd` 方案适合没有 `sudo` 的场景，但是否能立即 `enable --now` 取决于当前机器的 user bus / session 配置
+- 当前项目提供的启动脚本为 [scripts/start-web-terminal.sh](/home/dministrator/claudeworkspace/web-terminal/scripts/start-web-terminal.sh)
+
+### 4. 常用命令
+
+```bash
+# 查看日志
+journalctl -u web-terminal -f
+
+# 查看文件日志
+tail -f .web-terminal/logs/service.log
+
+# 重启服务
+sudo systemctl restart web-terminal
+
+# 停止服务
+sudo systemctl stop web-terminal
+
+# 查看状态
+sudo systemctl status web-terminal
 ```
 
 ## AI 功能说明

@@ -1,0 +1,21 @@
+[Unit]
+Description=Web Terminal
+After=network.target
+
+[Service]
+Type=simple
+User=dministrator
+Group=dministrator
+WorkingDirectory=/home/dministrator/claudeworkspace/web-terminal
+Environment=HOME=/home/dministrator
+Environment=PORT=3456
+Environment=WEB_TERMINAL_DATA_DIR=/home/dministrator/claudeworkspace/web-terminal/.web-terminal
+ExecStartPre=/usr/bin/mkdir -p /home/dministrator/claudeworkspace/web-terminal/.web-terminal/logs
+ExecStart=/home/dministrator/claudeworkspace/web-terminal/scripts/start-web-terminal.sh
+Restart=always
+RestartSec=3
+StandardOutput=append:/home/dministrator/claudeworkspace/web-terminal/.web-terminal/logs/service.log
+StandardError=append:/home/dministrator/claudeworkspace/web-terminal/.web-terminal/logs/service.log
+
+[Install]
+WantedBy=multi-user.target

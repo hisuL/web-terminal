@@ -7,7 +7,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const { execSync } = require("child_process");
 const bcrypt = require("bcryptjs");
-const { getConfig, saveConfig, recordRecentDir, recordRecentLaunch, getRecentDirEntry, getTopRecentDirs, getSessionHistory, initHookConfig, getHookConfig, getHookSettings, saveHookSettings, getProjectHookSettings, saveProjectHookSettings, getDefaultHookSettings } = require("./lib/config");
+const { getConfig, saveConfig, recordRecentDir, recordRecentLaunch, touchRecentSession, getRecentDirEntry, getTopRecentDirs, removeRecentDirEntry, getSessionHistory, initHookConfig, getHookConfig, getHookSettings, saveHookSettings, getProjectHookSettings, saveProjectHookSettings, getDefaultHookSettings } = require("./lib/config");
 const { syncProjectHooks, detectTools, readClaudeHooks, readCodexHooks, removeClaudeHooks, removeCodexHooks } = require("./lib/hook-injector");
 
 const app = express();
@@ -101,6 +101,7 @@ function createSession(name, shell = process.env.SHELL || "bash", cwd, aiTool) {
     createdAt: Date.now(),
     shell,
     cwd: cwd || process.env.HOME || "/tmp",
+    historyPath: cwd || process.env.HOME || "/tmp",
     aiTool: aiTool || null,
     scrollback,
     cols,
@@ -110,6 +111,31 @@ function createSession(name, shell = process.env.SHELL || "bash", cwd, aiTool) {
   sessions.set(id, session);
   broadcastSessionList();
   return session;
+}
+
+function getSessionRealCwd(session) {
+  if (!session) return null;
+  if (session.tmuxTarget) {
+    try {
+      const groupName = `_wt_${session.id}`;
+      return execSync(`tmux display-message -t '${groupName}' -p '#{pane_current_path}' 2>/dev/null`).toString().trim() || session.cwd;
+    } catch {
+      return session.cwd;
+    }
+  }
+  try {
+    return fs.readlinkSync(`/proc/${session.pty.pid}/cwd`);
+  } catch {
+    return session.cwd;
+  }
+}
+
+function isHistoryPathActive(historyPath) {
+  if (!historyPath) return false;
+  return Array.from(sessions.values()).some((session) => {
+    const sessionHistoryPath = session.historyPath || session.cwd;
+    return sessionHistoryPath === historyPath;
+  });
 }
 
 function broadcastSessionList() {
@@ -258,7 +284,11 @@ app.get("/api/recent-dirs/lookup", authMiddleware, (req, res) => {
 
 app.get("/api/session-history", authMiddleware, (req, res) => {
   const q = req.query.q || "";
-  res.json(getSessionHistory(q, 100));
+  const items = getSessionHistory(q, 100).map((item) => ({
+    ...item,
+    deletable: !isHistoryPathActive(item.path),
+  }));
+  res.json(items);
 });
 
 // --- Hook Notification API (US-002) ---
@@ -271,20 +301,6 @@ app.post("/api/notify", (req, res) => {
   const hookConfig = getHookConfig();
   if (!hookConfig.secret || secret !== hookConfig.secret) {
     return res.status(401).json({ error: "Invalid secret" });
-  }
-
-  // Match cwd to active session for sessionId/sessionName
-  // Get real-time cwd for each session
-  function getSessionRealCwd(s) {
-    if (s.tmuxTarget) {
-      try {
-        const groupName = `_wt_${s.id}`;
-        return execSync(`tmux display-message -t '${groupName}' -p '#{pane_current_path}' 2>/dev/null`).toString().trim() || s.cwd;
-      } catch { return s.cwd; }
-    }
-    try {
-      return fs.readlinkSync(`/proc/${s.pty.pid}/cwd`);
-    } catch { return s.cwd; }
   }
 
   const activeSessions = Array.from(sessions.values()).map(s => {
@@ -572,6 +588,56 @@ app.post("/api/session-history/launch", authMiddleware, (req, res) => {
   }
 
   res.json({ id: session.id, name: session.name });
+});
+
+app.delete("/api/session-history", authMiddleware, (req, res) => {
+  const { path: historyPath } = req.body || {};
+  if (!historyPath) return res.status(400).json({ error: "path required" });
+  if (isHistoryPathActive(historyPath)) {
+    return res.status(409).json({ error: "当前会话正在使用该路径，无法删除" });
+  }
+
+  const existed = !!getRecentDirEntry(historyPath);
+  if (!existed) {
+    return res.status(404).json({ error: "历史记录不存在" });
+  }
+
+  removeRecentDirEntry(historyPath);
+
+  try { removeClaudeHooks(historyPath); } catch (e) { console.warn("[history-delete] claude:", e.message); }
+  try { removeCodexHooks(historyPath); } catch (e) { console.warn("[history-delete] codex:", e.message); }
+  try {
+    const settings = getHookSettings();
+    if (settings.projects && settings.projects[historyPath]) {
+      delete settings.projects[historyPath];
+      saveHookSettings(settings);
+    }
+  } catch (e) {
+    console.warn("[history-delete] settings:", e.message);
+  }
+
+  res.json({ ok: true, path: historyPath });
+});
+
+app.post("/api/sessions/:id/activity", authMiddleware, (req, res) => {
+  const session = sessions.get(req.params.id);
+  if (!session) return res.status(404).json({ error: "Session not found" });
+
+  const historyPath = session.historyPath || session.cwd;
+  if (historyPath) {
+    touchRecentSession(historyPath, { sessionName: session.name });
+  }
+
+  const realCwd = getSessionRealCwd(session);
+  if (realCwd && realCwd !== historyPath) {
+    recordRecentDir(realCwd);
+  }
+
+  res.json({
+    ok: true,
+    path: historyPath || null,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // --- Directory Browser API ---
@@ -1037,6 +1103,7 @@ app.post("/api/attach/tmux", authMiddleware, (req, res) => {
     createdAt: Date.now(),
     shell: "tmux",
     cwd: initialTmuxCwd || process.env.HOME || "/tmp",
+    historyPath: initialTmuxCwd || process.env.HOME || "/tmp",
     tmuxTarget: target,
     scrollback,
     cols,

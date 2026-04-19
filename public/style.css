@@ -465,9 +465,11 @@ html, body {
 }
 
 .history-session-item {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 8px;
+  align-items: start;
   padding: 10px 12px;
   border-radius: var(--radius);
   margin-bottom: 6px;
@@ -499,6 +501,7 @@ html, body {
 }
 
 .history-session-body {
+  grid-column: 2;
   flex: 1;
   min-width: 0;
 }
@@ -506,7 +509,7 @@ html, body {
 .history-session-header {
   display: flex;
   gap: 8px;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
 }
 
@@ -514,7 +517,8 @@ html, body {
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
-  word-break: break-all;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .history-session-time {
@@ -528,7 +532,7 @@ html, body {
 .history-session-cmd {
   font-size: 11px;
   line-height: 1.4;
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .history-session-path {
@@ -543,17 +547,49 @@ html, body {
 }
 
 .history-session-actions {
+  grid-column: 2;
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 2px;
 }
 
-.history-restore-btn {
-  min-width: 56px;
-  padding: 7px 10px;
-  font-size: 11px;
-  font-family: var(--font-mono);
-  font-weight: 600;
+.history-restore-btn,
+.history-delete-btn {
+  min-width: 30px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+.history-restore-btn svg,
+.history-delete-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.history-restore-btn:hover:not(:disabled) {
+  background: rgba(34, 211, 238, 0.18);
+  border-color: rgba(34, 211, 238, 0.55);
+  color: #67e8f9;
+}
+
+.history-delete-btn {
+  color: var(--danger);
+  border-color: rgba(244, 71, 71, 0.35);
+}
+
+.history-delete-btn:hover:not(:disabled) {
+  background: rgba(244, 71, 71, 0.18);
+  border-color: rgba(244, 71, 71, 0.65);
+  color: #ff8a8a;
 }
 
 .session-item {
