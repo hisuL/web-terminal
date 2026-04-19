@@ -3491,9 +3491,6 @@
       .then((r) => r.json())
       .then((cfg) => {
         aiEnabled = !!cfg.aiEnabled;
-        if (!aiEnabled) {
-          shortcutToggleBtn.style.display = "none";
-        }
       })
       .catch(() => { aiEnabled = false; });
 

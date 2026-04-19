@@ -430,8 +430,20 @@ app.get("/api/hook-detect/:encodedPath", authMiddleware, (req, res) => {
 });
 
 // --- Auto-inject hooks on session creation (US-006) ---
+function isProtectedHookScope(cwd) {
+  if (!cwd) return false;
+  const resolved = path.resolve(cwd);
+  const home = process.env.HOME ? path.resolve(process.env.HOME) : null;
+  if (home && resolved === home) return true;
+  return false;
+}
+
 function autoInjectHooks(cwd, aiTool) {
   if (!cwd) return;
+  if (isProtectedHookScope(cwd)) {
+    console.log(`[auto-inject] skipped protected scope: ${cwd}`);
+    return;
+  }
   try {
     const tools = detectTools(cwd);
     // Also consider aiTool hint
