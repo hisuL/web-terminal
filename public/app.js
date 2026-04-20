@@ -343,11 +343,13 @@
     sessions.forEach((s) => {
       const div = document.createElement("div");
       const unread = hasSessionUnread(s.id);
+      const fullPath = s.cwd || "";
       div.className = "session-item" + (s.id === activeSessionId ? " active" : "") + (unread ? " session-breathing" : "");
       const bellHtml = unread ? `<span class="session-bell-icon bell-shaking">${SVG.bell}</span>` : "";
       div.innerHTML = `
         <div class="session-info">
           <div class="session-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}${bellHtml}</div>
+          ${fullPath ? `<div class="session-path" title="${escapeHtml(fullPath)}">${escapeHtml(fullPath)}</div>` : ""}
           <div class="session-meta">${formatTime(s.createdAt)} · ${s.clients} conn</div>
         </div>
         <div class="session-actions">

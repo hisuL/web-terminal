@@ -27,6 +27,7 @@
 ## 功能特性
 
 - **多会话管理**：侧边栏切换，支持任意数量并发终端会话
+  - 当前会话列表显示完整项目路径，便于区分同名目录或父目录下多个项目
 - **历史会话恢复**：Sessions 面板内置历史视图，按目录去重缓存非 tmux 会话，支持搜索并一键按最近命令恢复
 - **tmux 接入**：将已有 tmux 会话挂载为浏览器标签
 - **新建会话向导**：图形化选择工作目录、AI 工具（Claude / Codex / 无）
@@ -87,6 +88,12 @@ cd web-terminal
 npm install
 ```
 
+如果计划用 `systemd` 部署，推荐额外执行一次：
+
+```bash
+chmod +x scripts/start-web-terminal.sh scripts/install-systemd-service.sh
+```
+
 ## 配置
 
 所有配置通过环境变量设置，无需修改代码。
@@ -111,7 +118,7 @@ npm install
 
 ```bash
 export PORT=3456
-export WEB_TERMINAL_DATA_DIR=/home/dministrator/claudeworkspace/web-terminal/.web-terminal
+export WEB_TERMINAL_DATA_DIR="$PWD/.web-terminal"
 # 可选：启用 AI 快捷键分析
 export OPENROUTER_API_KEY=sk-or-xxxxxx
 ```
@@ -132,31 +139,56 @@ http://localhost:3456
 
 ### 3. 开机自启动
 
-项目已提供 `systemd` 单元文件：
+项目提供了一个通用安装脚本，会根据“当前用户 + 当前项目目录 + 当前 node 路径”生成最终的 `systemd` unit，避免写死用户名、家目录、NVM 版本或 `claude` 安装路径。
 
 [systemd/web-terminal.service](/home/dministrator/claudeworkspace/web-terminal/systemd/web-terminal.service)
 
 如果有 `sudo`，推荐安装成系统服务：
 
 ```bash
-sudo cp systemd/web-terminal.service /etc/systemd/system/web-terminal.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now web-terminal
+./scripts/install-systemd-service.sh system
 ```
 
 如果当前机器不方便使用 `sudo`，也可以放到用户级目录：
 
 ```bash
-mkdir -p ~/.config/systemd/user/default.target.wants
-cp systemd/web-terminal.service ~/.config/systemd/user/web-terminal.service
-ln -sf ~/.config/systemd/user/web-terminal.service ~/.config/systemd/user/default.target.wants/web-terminal.service
+./scripts/install-systemd-service.sh user
 ```
 
 说明：
 
 - 系统级 `systemd` 方案最稳，推荐优先使用
-- 用户级 `systemd` 方案适合没有 `sudo` 的场景，但是否能立即 `enable --now` 取决于当前机器的 user bus / session 配置
+- 用户级 `systemd` 方案适合没有 `sudo` 的场景，但是否能立即启动取决于当前机器的 user bus / session 配置
 - 当前项目提供的启动脚本为 [scripts/start-web-terminal.sh](/home/dministrator/claudeworkspace/web-terminal/scripts/start-web-terminal.sh)
+- 安装脚本会自动把常见 CLI 目录加入服务环境的 `PATH`，包括 `~/.local/bin`、`~/.bun/bin`、`~/.npm-global/bin`、`~/.nvm/bin` 和当前 `node` 所在目录
+- 如果你的 `claude` / `codex` 安装在非常规目录，可在安装前先调整当前 shell 的 `PATH`，或显式导出 `NODE_BIN=/your/node/path` 后再执行安装脚本
+- 重新执行安装脚本会覆盖已有 unit 配置，并自动重启服务使新环境立即生效
+
+### 5. 升级已有安装
+
+如果对方机器已经装过旧版本，推荐在项目目录执行：
+
+```bash
+git pull
+npm install
+chmod +x scripts/start-web-terminal.sh scripts/install-systemd-service.sh
+./scripts/install-systemd-service.sh system
+```
+
+如果是用户级 `systemd` 安装，则改为：
+
+```bash
+git pull
+npm install
+chmod +x scripts/start-web-terminal.sh scripts/install-systemd-service.sh
+./scripts/install-systemd-service.sh user
+```
+
+说明：
+
+- 这一步会重新生成并覆盖 `systemd` unit
+- 会自动重启 `web-terminal` 服务
+- 适合从旧版“写死用户名 / HOME / Node 路径”的 service 模板升级到当前通用版
 
 ### 4. 常用命令
 
@@ -175,6 +207,14 @@ sudo systemctl stop web-terminal
 
 # 查看状态
 sudo systemctl status web-terminal
+```
+
+如果安装的是用户级服务，对应命令改为：
+
+```bash
+systemctl --user status web-terminal
+systemctl --user restart web-terminal
+journalctl --user -u web-terminal -f
 ```
 
 ## AI 功能说明
@@ -223,6 +263,16 @@ Web Terminal 会按项目注入 Claude / Codex 的 hooks，用于通知回传和
 - 已有项目级 hook 时只做增量合并，不覆盖用户原有内容
 - 会话退出且项目不再被任何活动会话使用时，只清理 Web Terminal 自己注入的 hook
 - 如果项目根下 `.codex` 原本是文件，服务会自动备份后迁移成目录，再写入官方约定的 `.codex/hooks.json`
+- 不会改写 `~/.claude` 或 `~/.codex` 这类用户级全局配置；如果出现跨项目通知，优先检查是否在父目录项目下误装了范围过宽的 `.codex` hook
+
+### 常见问题
+
+- 当前会话列表看不到项目路径：
+  刷新页面；如果后端刚升级过，再执行一次 `sudo systemctl restart web-terminal` 或 `./scripts/install-systemd-service.sh system`
+- `claude` / `codex` 命令在 Web Terminal 里找不到：
+  先确认宿主机终端里直接能运行该命令，再重新执行一次安装脚本，让最新 `PATH` 写入 service 环境
+- 某些无关项目也收到 Codex 通知：
+  检查是否在父目录项目下存在 `.codex/config.toml` 和 `.codex/hooks.json`，尤其是类似 `/path/to/workspace/.codex/` 这种会覆盖多个子项目的目录
 
 ### 手机端使用
 

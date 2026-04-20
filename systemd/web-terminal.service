@@ -4,18 +4,20 @@ After=network.target
 
 [Service]
 Type=simple
-User=dministrator
-Group=dministrator
-WorkingDirectory=/home/dministrator/claudeworkspace/web-terminal
-Environment=HOME=/home/dministrator
+User=__WT_USER__
+Group=__WT_GROUP__
+WorkingDirectory=__WT_PROJECT_DIR__
+Environment=HOME=__WT_HOME__
+Environment=SHELL=__WT_SHELL__
+Environment=PATH=__WT_PATH__
 Environment=PORT=3456
-Environment=WEB_TERMINAL_DATA_DIR=/home/dministrator/claudeworkspace/web-terminal/.web-terminal
-ExecStartPre=/usr/bin/mkdir -p /home/dministrator/claudeworkspace/web-terminal/.web-terminal/logs
-ExecStart=/home/dministrator/claudeworkspace/web-terminal/scripts/start-web-terminal.sh
+Environment=WEB_TERMINAL_DATA_DIR=__WT_PROJECT_DIR__/.web-terminal
+ExecStartPre=/usr/bin/mkdir -p __WT_PROJECT_DIR__/.web-terminal/logs
+ExecStart=__WT_PROJECT_DIR__/scripts/start-web-terminal.sh
 Restart=always
 RestartSec=3
-StandardOutput=append:/home/dministrator/claudeworkspace/web-terminal/.web-terminal/logs/service.log
-StandardError=append:/home/dministrator/claudeworkspace/web-terminal/.web-terminal/logs/service.log
+StandardOutput=append:__WT_PROJECT_DIR__/.web-terminal/logs/service.log
+StandardError=append:__WT_PROJECT_DIR__/.web-terminal/logs/service.log
 
 [Install]
 WantedBy=multi-user.target

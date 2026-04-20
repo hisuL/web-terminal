@@ -159,6 +159,7 @@ function getSessionList() {
     clients: s.clients.size,
     cols: s.cols,
     rows: s.rows,
+    cwd: s.cwd || null,
     aiTool: s.aiTool || null,
   }));
 }

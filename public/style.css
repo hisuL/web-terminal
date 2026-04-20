@@ -634,6 +634,15 @@ html, body {
   color: var(--accent);
 }
 
+.session-path {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-dim);
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
 /* Expanded name mode */
 .names-expanded .session-name {
   white-space: normal;
@@ -642,10 +651,14 @@ html, body {
   word-break: break-all;
 }
 
+.names-expanded .session-path {
+  word-break: break-all;
+}
+
 .session-meta {
   font-size: 11px;
   color: var(--text-dim);
-  margin-top: 2px;
+  margin-top: 4px;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
